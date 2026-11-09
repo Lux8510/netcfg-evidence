@@ -31,6 +31,15 @@
         <p class="hint">相同字节重复导入会返回同一版本（幂等）。</p>
       </form>
       <div id="version-list" class="list"></div>
+
+      <h2 class="section-gap">链路</h2>
+      <form id="link-form" class="stack">
+        <input id="link-local" placeholder="本端接口，如 eth2" aria-label="本端接口">
+        <select id="link-peer" aria-label="对端设备"></select>
+        <input id="link-peer-iface" placeholder="对端接口，如 eth1" aria-label="对端接口">
+        <button class="btn ghost" type="submit">登记链路</button>
+      </form>
+      <div id="link-list" class="list"></div>
     </aside>
 
     <section class="content">
@@ -54,7 +63,8 @@
       <div class="tabpane" id="pane-rules">
         <div class="row">
           <button id="run-rules" class="btn primary">运行规则检查</button>
-          <span class="muted">4 条确定性规则；无法判定不会被当成通过</span>
+          <label class="inline-check"><input id="include-cross" type="checkbox"> 包含链路规则</label>
+          <span class="muted">4 条本机规则 + 3 条链路规则；无法判定不会被当成通过</span>
         </div>
         <div id="rules-result"></div>
       </div>

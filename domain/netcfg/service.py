@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from engine.models import Baseline, ConfigVersion, Device, DriftReport, Finding, RuleRun
+from engine.models import Baseline, ConfigVersion, Device, DeviceLink, DriftReport, Finding, RuleRun
 from engine.models import uid
 
 from .drift import diff_configs
@@ -237,8 +237,10 @@ def drift_payload(report: DriftReport) -> dict[str, Any]:
     }
 
 
-def run_rules_check(db: Session, device_id: str, version_id: str | None = None) -> dict[str, Any]:
+def run_rules_check(db: Session, device_id: str, version_id: str | None = None,
+                    include_cross: bool = False) -> dict[str, Any]:
     """Run the deterministic rule set against one version and persist the findings."""
+    from . import cross_rules
     from . import rules as rules_module
 
     _device(db, device_id)
@@ -248,18 +250,54 @@ def run_rules_check(db: Session, device_id: str, version_id: str | None = None) 
 
     parsed = parse_frr_config(version.raw_text, version.source_name)
     result = rules_module.run_rules(parsed)
+    findings = list(result["findings"])
+    cross_checked = 0
+    cross_not_applicable = 0
+
+    if include_cross:
+        cross_checked = len(cross_rules.CROSS_RULES)
+        links = active_links(db, device_id)
+        if not links:
+            cross_not_applicable = cross_checked
+        else:
+            peers = []
+            for link in links:
+                if link.device_a_id == device_id:
+                    local_iface, peer_id, peer_iface = link.iface_a, link.device_b_id, link.iface_b
+                else:
+                    local_iface, peer_id, peer_iface = link.iface_b, link.device_a_id, link.iface_a
+                peer_device = db.get(Device, peer_id)
+                peer_version = db.scalar(
+                    select(ConfigVersion).where(ConfigVersion.device_id == peer_id)
+                    .order_by(ConfigVersion.created_at.desc(), ConfigVersion.id.desc()).limit(1))
+                if peer_version is None:
+                    findings.append(rules_module.Finding(
+                        cross_rules.LINK_MISMATCH, "undetermined",
+                        f"对端设备 {peer_device.name if peer_device else peer_id} 还没有配置版本，无法比较链路。",
+                        (rules_module.Evidence("parsed_value", None, "peer config missing",
+                                               f"interface.{local_iface}", version.id),)))
+                    continue
+                peers.append(cross_rules.Peer(
+                    device_id=peer_id, device_name=peer_device.name if peer_device else peer_id,
+                    version_id=peer_version.id, interface=peer_iface,
+                    parsed=parse_frr_config(peer_version.raw_text, peer_version.source_name)))
+                findings.extend(cross_rules.check_link(parsed, version.id, local_iface, peers[-1]))
+            findings.extend(cross_rules.check_duplicate_addresses(parsed, version.id, peers))
+
     digest_matches = parsed.canonical_sha256 == version.canonical_sha256
     run_id = uid()
+    covered = {finding.rule_id for finding in findings}
     counts = {
-        "rules_checked": result["rules_checked"],
-        "rules_satisfied": result["rules_satisfied"],
-        "rules_not_applicable": result.get("rules_not_applicable", 0),
-        "findings_violated": result["findings_violated"],
-        "findings_undetermined": result["findings_undetermined"],
+        "rules_checked": result["rules_checked"] + cross_checked,
+        "rules_satisfied": (result["rules_checked"] + cross_checked - len(covered)
+                            - result.get("rules_not_applicable", 0) - cross_not_applicable),
+        "rules_not_applicable": result.get("rules_not_applicable", 0) + cross_not_applicable,
+        "findings_violated": sum(1 for finding in findings if finding.status == "violated"),
+        "findings_undetermined": sum(1 for finding in findings if finding.status == "undetermined"),
     }
     db.add(RuleRun(id=run_id, device_id=device_id, config_version_id=version.id, counts=counts))
     stored = []
-    for finding in result["findings"]:
+    for finding in findings:
         row = Finding(
             run_id=run_id, device_id=device_id, config_version_id=version.id,
             rule_id=finding.rule_id, status=finding.status, message=finding.message,
@@ -278,6 +316,59 @@ def run_rules_check(db: Session, device_id: str, version_id: str | None = None) 
         "counts": counts,
         "findings": [finding_payload(row) for row in stored],
     }
+
+
+def active_links(db: Session, device_id: str) -> list[DeviceLink]:
+    return list(db.scalars(
+        select(DeviceLink).where((DeviceLink.device_a_id == device_id) | (DeviceLink.device_b_id == device_id))
+        .order_by(DeviceLink.created_at, DeviceLink.id)))
+
+
+def create_link(db: Session, device_a_id: str, iface_a: str, device_b_id: str, iface_b: str) -> DeviceLink:
+    if device_a_id == device_b_id:
+        raise ServiceError("LINK_SAME_DEVICE", "链路两端不能是同一台设备", 422)
+    for device_id, iface in ((device_a_id, iface_a), (device_b_id, iface_b)):
+        _device(db, device_id)
+        if not iface.strip():
+            raise ServiceError("LINK_INVALID_INTERFACE", "接口名不能为空", 422)
+    existing = db.scalar(select(DeviceLink).where(DeviceLink.device_a_id == device_a_id, DeviceLink.iface_a == iface_a))
+    if existing:
+        raise ServiceError("LINK_EXISTS", "该接口已经登记链路", 409)
+    existing = db.scalar(select(DeviceLink).where(DeviceLink.device_b_id == device_b_id, DeviceLink.iface_b == iface_b))
+    if existing:
+        raise ServiceError("LINK_EXISTS", "对端接口已经登记链路", 409)
+    link = DeviceLink(device_a_id=device_a_id, iface_a=iface_a.strip(),
+                      device_b_id=device_b_id, iface_b=iface_b.strip())
+    db.add(link)
+    db.flush()
+    return link
+
+
+def list_links(db: Session, device_id: str | None = None) -> list[DeviceLink]:
+    query = select(DeviceLink).order_by(DeviceLink.created_at, DeviceLink.id)
+    if device_id:
+        _device(db, device_id)
+        query = select(DeviceLink).where(
+            (DeviceLink.device_a_id == device_id) | (DeviceLink.device_b_id == device_id)
+        ).order_by(DeviceLink.created_at, DeviceLink.id)
+    return list(db.scalars(query))
+
+
+def delete_link(db: Session, link_id: str) -> None:
+    link = db.get(DeviceLink, link_id)
+    if link is None:
+        raise ServiceError("LINK_NOT_FOUND", "链路不存在", 404)
+    db.delete(link)
+
+
+def link_payload(db: Session, link: DeviceLink) -> dict[str, Any]:
+    def name(device_id: str) -> str:
+        device = db.get(Device, device_id)
+        return device.name if device else device_id
+    return {"id": link.id,
+            "device_a": {"id": link.device_a_id, "name": name(link.device_a_id), "interface": link.iface_a},
+            "device_b": {"id": link.device_b_id, "name": name(link.device_b_id), "interface": link.iface_b},
+            "created_at": link.created_at.isoformat()}
 
 
 def parsed_version_of(version: ConfigVersion) -> str:

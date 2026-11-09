@@ -25,9 +25,11 @@ class Evidence:
     line: int | None
     text: str
     path: str | None = None
+    version_id: str | None = None
 
     def as_dict(self) -> dict:
-        return {"kind": self.kind, "line": self.line, "text": self.text, "path": self.path}
+        return {"kind": self.kind, "line": self.line, "text": self.text,
+                "path": self.path, "version_id": self.version_id}
 
 
 @dataclass(frozen=True)

@@ -9,7 +9,7 @@ from typing import Callable, Iterator
 from dotenv import load_dotenv
 
 from fastapi import Depends, FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
@@ -44,6 +44,18 @@ class BaselineBody(StrictBody):
 
 class DriftBody(StrictBody):
     current_version_id: str | None = Field(default=None, min_length=36, max_length=36)
+
+
+class RuleCheckBody(StrictBody):
+    current_version_id: str | None = Field(default=None, min_length=36, max_length=36)
+    include_cross: bool = False
+
+
+class LinkBody(StrictBody):
+    device_a_id: str = Field(min_length=36, max_length=36)
+    iface_a: str = Field(min_length=1, max_length=80)
+    device_b_id: str = Field(min_length=36, max_length=36)
+    iface_b: str = Field(min_length=1, max_length=80)
 
 
 class ChangeRequestBody(StrictBody):
@@ -155,9 +167,10 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         return ok(rules_payload())
 
     @app.post("/api/devices/{device_id}/rules/check", status_code=201)
-    def run_rules(device_id: str, body: DriftBody | None = None, db: Session = Depends(get_db)):
+    def run_rules(device_id: str, body: RuleCheckBody | None = None, db: Session = Depends(get_db)):
         version_id = body.current_version_id if body else None
-        return ok(service.run_rules_check(db, device_id, version_id))
+        include_cross = bool(body and body.include_cross)
+        return ok(service.run_rules_check(db, device_id, version_id, include_cross))
 
     @app.get("/api/devices/{device_id}/rules/runs")
     def list_rule_runs(device_id: str, db: Session = Depends(get_db)):
@@ -191,6 +204,20 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     def get_explanation(explanation_id: str, db: Session = Depends(get_db)):
         from domain.netcfg import explain
         return ok(explain.explanation_payload(explain.get_explanation(db, explanation_id)))
+
+    @app.post("/api/links", status_code=201)
+    def create_link(body: LinkBody, db: Session = Depends(get_db)):
+        link = service.create_link(db, body.device_a_id, body.iface_a, body.device_b_id, body.iface_b)
+        return ok(service.link_payload(db, link))
+
+    @app.get("/api/links")
+    def list_links(device_id: str | None = None, db: Session = Depends(get_db)):
+        return ok([service.link_payload(db, link) for link in service.list_links(db, device_id)])
+
+    @app.delete("/api/links/{link_id}", status_code=204)
+    def delete_link(link_id: str, db: Session = Depends(get_db)):
+        service.delete_link(db, link_id)
+        return Response(status_code=204)
 
     @app.post("/api/devices/{device_id}/change-requests", status_code=201)
     def create_change_request(device_id: str, body: ChangeRequestBody, db: Session = Depends(get_db)):

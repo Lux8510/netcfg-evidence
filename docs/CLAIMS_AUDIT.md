@@ -59,6 +59,9 @@
 | 新增：XSS 不执行 | — | **强制** | `<img onerror>` 在设备名与变更单标题中只显示为文本 | `tests/test_e2e_ui.py` |
 | 新增：测试不调用真实模型 | — | **强制** | `tests/conftest.py` 强制 `EXPLAIN_PROVIDER=mock` | 全部测试 |
 | 新增：token 用量可追溯 | — | **强制** | `explanations.usage` 列 + 迁移 2 + 界面展示 | `tests/test_providers.py` |
+| 新增：链路两端 area 一致 | — | **强制** | R005 跨设备规则 + 证据带 version_id | `tests/test_cross_rules.py` |
+| 新增：跨设备重复地址 | — | **强制** | R006 跨设备规则 | `tests/test_cross_rules.py` |
+| 新增：链路两端同网段 | — | **强制** | R007 跨设备规则 | `tests/test_cross_rules.py` |
 | B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
 | UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
 | UI03 解释归属同一 run | — | **强制（已修）** | 解释按最新 run 查询，界面显示 run 标识 |

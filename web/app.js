@@ -5,6 +5,7 @@ const state = {
   baseline: null,
   findings: null,
   changeRequest: null,
+  links: [],
 };
 
 let loadSeq = 0;
@@ -42,6 +43,9 @@ const when = (iso) => (iso ? new Date(iso).toLocaleString('zh-CN', { hour12: fal
 // ---------- devices ----------
 async function loadDevices() {
   state.devices = await api('/devices');
+  const peerSelect = $('#link-peer');
+  peerSelect.innerHTML = '<option value="">对端设备…</option>' +
+    state.devices.map((d) => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
   const select = $('#device-select');
   select.innerHTML = '<option value="">选择设备…</option>' +
     state.devices.map((d) => `<option value="${esc(d.id)}">${esc(d.name)}</option>`).join('');
@@ -70,7 +74,8 @@ async function refreshDevice() {
   state.versions = [];
   state.baseline = null;
   $('#change-form').classList.add('hidden');
-  renderVersions(); renderChanges([]); renderDrift(null); renderRules(null); renderExplain([]);
+  state.links = [];
+  renderVersions(); renderLinks(); renderChanges([]); renderDrift(null); renderRules(null); renderExplain([]);
   $('#baseline-label').textContent = state.deviceId ? '正在读取…' : '';
   if (!state.deviceId) { $('#baseline-label').textContent = ''; return; }
 
@@ -84,7 +89,7 @@ async function refreshDevice() {
   state.versions = versions;
   state.baseline = baseline;
   renderVersions(); renderBaselineLabel();
-  await Promise.all([loadDrift(), loadFindings(), loadChanges(), loadExplain()]);
+  await Promise.all([loadLinks(), loadDrift(), loadFindings(), loadChanges(), loadExplain()]);
 }
 
 function renderBaselineLabel() {
@@ -121,6 +126,58 @@ function renderVersions() {
   list.querySelectorAll('[data-lines]').forEach((button) => {
     button.onclick = () => showLines(button.dataset.lines, 1, 200, '原文');
   });
+}
+
+async function loadLinks() {
+  if (!state.deviceId) return renderLinks();
+  const token = currentToken();
+  const rows = await api(`/links?device_id=${encodeURIComponent(token.deviceId)}`);
+  if (isStale(token)) return;
+  state.links = rows;
+  renderLinks();
+}
+
+function renderLinks() {
+  const host = $('#link-list');
+  if (!state.links.length) { host.innerHTML = '<p class="muted small">未登记链路；跨设备规则会显示「不适用」。</p>'; return; }
+  host.innerHTML = state.links.map((link) => {
+    const local = link.device_a.id === state.deviceId
+      ? `${link.device_a.name} / ${link.device_a.interface}`
+      : `${link.device_b.name} / ${link.device_b.interface}`;
+    const peer = link.device_a.id === state.deviceId
+      ? `${link.device_b.name} / ${link.device_b.interface}`
+      : `${link.device_a.name} / ${link.device_a.interface}`;
+    return `<article class="item">
+      <div class="muted small">本端 ${esc(local)} ↔ 对端 ${esc(peer)}</div>
+      <button class="btn ghost small" data-unlink="${esc(link.id)}">删除链路</button>
+    </article>`;
+  }).join('');
+  host.querySelectorAll('[data-unlink]').forEach((button) => {
+    button.onclick = () => removeLink(button.dataset.unlink);
+  });
+}
+
+async function addLink(event) {
+  event.preventDefault();
+  const peerId = $('#link-peer').value;
+  const localIface = $('#link-local').value.trim();
+  const peerIface = $('#link-peer-iface').value.trim();
+  if (!peerId || !localIface || !peerIface) return status('请填写本端、对端与接口', 'error');
+  try {
+    await api('/links', { method: 'POST', body: {
+      device_a_id: state.deviceId, iface_a: localIface, device_b_id: peerId, iface_b: peerIface } });
+    $('#link-local').value = ''; $('#link-peer-iface').value = '';
+    await loadLinks();
+    status('链路已登记', 'ok');
+  } catch (error) { status(error.message, 'error'); }
+}
+
+async function removeLink(linkId) {
+  try {
+    await api(`/links/${linkId}`, { method: 'DELETE' });
+    await loadLinks();
+    status('链路已删除', 'ok');
+  } catch (error) { status(error.message, 'error'); }
 }
 
 async function setBaseline(versionId) {
@@ -217,8 +274,9 @@ async function loadFindings() {
 
 async function runRules() {
   const token = currentToken();
+  const includeCross = $('#include-cross').checked;
   try {
-    const result = await api(`/devices/${token.deviceId}/rules/check`, { body: {} });
+    const result = await api(`/devices/${token.deviceId}/rules/check`, { body: { include_cross: includeCross } });
     if (isStale(token)) return;
     state.findings = result;
     renderRules(result);
@@ -253,7 +311,7 @@ function renderRules(result) {
             <span class="muted small">第 ${ev.line} 行</span>
             <code>${esc(ev.text)}</code>
             ${finding.config_version_id
-              ? `<button class="btn ghost small" data-v="${esc(finding.config_version_id)}" data-device="${esc(state.deviceId || '')}" data-from="${ev.line}" data-to="${ev.line}">看原文</button>`
+              ? `<button class="btn ghost small" data-v="${esc(ev.version_id || finding.config_version_id)}" data-device="${esc(state.deviceId || '')}" data-from="${ev.line}" data-to="${ev.line}">看原文${ev.version_id && ev.version_id !== finding.config_version_id ? '（对端）' : ''}</button>`
               : '<span class="muted small">缺少版本信息，无法回查</span>'}
           </div>`).join('')}
         ${finding.status === 'violated' && !finding.rule_id.startsWith('__')
@@ -428,6 +486,7 @@ async function showLines(versionId, from, to, title, ownerDevice) {
 $('#device-select').onchange = async (event) => { state.deviceId = event.target.value || null; await refreshDevice(); };
 $('#create-device').onclick = createDevice;
 $('#import-form').onsubmit = importConfig;
+$('#link-form').onsubmit = addLink;
 $('#compute-drift').onclick = computeDrift;
 $('#run-rules').onclick = runRules;
 $('#run-explain').onclick = runExplain;

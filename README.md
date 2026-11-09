@@ -20,11 +20,11 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **146 项**
+- 单元/接口测试 **153 项**
 - 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
 - 浏览器端到端 **6 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
-- 规则 4 条，三值判定 + not_applicable
+- 规则 4 条本机 + 3 条链路，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
 - 解释层：Mock 或 OpenAI 兼容真实模型 + 引用校验，解释不能改变判定
 - 覆盖设备 / 版本 / 基线 / 漂移 / 规则 / Findings 的 HTTP API
@@ -85,6 +85,9 @@ print(report.as_dict())
 | POST | `/api/devices/{id}/rules/check` | 对某版本跑规则，落库 Findings |
 | GET | `/api/devices/{id}/findings` | 查询 Findings（可按 `run_id` 过滤） |
 | GET | `/api/devices/{id}/rules/runs` | 每次规则执行的摘要（含零 Finding 的运行） |
+| POST | `/api/links` | 登记两台设备之间的链路（接口级） |
+| GET | `/api/links?device_id=` | 链路列表 |
+| DELETE | `/api/links/{id}` | 删除链路 |
 | GET | `/api/versions/{id}/lines?start=&end=` | 取原始配置行作为证据 |
 | POST | `/api/devices/{id}/change-requests` | 由 violated Finding 生成变更单 |
 | GET | `/api/devices/{id}/change-requests` | 变更单列表 |
@@ -144,6 +147,22 @@ draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
 - 审批人名称先做 Unicode NFKC 规范化，全角 `ＡＧＥＮＴ` 也会被拒绝
 - `executed_on_device` 恒为 `false`：系统只生成变更单，不下发配置
 - `apply` 只表示"人工已在维护窗口执行"，不验证设备状态
+
+## 链路规则（跨设备）
+
+登记两台设备的接口链路后，规则检查可以带上 `include_cross=true`：
+
+| ID | 规则 | 判定依据 |
+| --- | --- | --- |
+| R005 | 链路两端 OSPF area 必须一致 | 两端接口/network 语句推导出的 area 不同 |
+| R006 | 同一地址不能出现在两台设备上 | 两台设备上出现完全相同的 IPv4 地址 |
+| R007 | 链路两端地址必须在同一网段 | 两端接口地址的网段没有交集 |
+
+- 对端设备没有配置版本 → `undetermined`，不猜
+- 没有登记链路 → 三条链路规则计为 `not_applicable`，不算通过
+- 证据里带 `version_id`，界面会分别打开本端与对端的原文
+
+界面左侧可以登记/删除链路；规则页勾选「包含链路规则」后一起执行。
 
 ## 解释层：模型只能解释，不能判定
 

@@ -160,6 +160,25 @@ class Explanation(Base):
     )
 
 
+class DeviceLink(Base):
+    """One physical/logical link between two interfaces. Used by cross-device rules."""
+
+    __tablename__ = "device_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_a_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    iface_a: Mapped[str] = mapped_column(String(80), nullable=False)
+    device_b_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    iface_b: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("device_a_id", "iface_a", name="uq_link_a"),
+        UniqueConstraint("device_b_id", "iface_b", name="uq_link_b"),
+        CheckConstraint("device_a_id <> device_b_id", name="ck_link_two_devices"),
+    )
+
+
 class RuleRun(Base):
     """One rule-check execution, including runs with zero findings."""
 
