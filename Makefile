@@ -1,6 +1,6 @@
 PY ?= python3
 
-.PHONY: test e2e run eval cases bundle check review-kit clean
+.PHONY: test e2e concurrency run migrate revision eval cases bundle check review-kit clean
 
 test:
 	$(PY) -m pytest
@@ -8,8 +8,17 @@ test:
 e2e:
 	$(PY) -m pytest -m e2e tests/test_e2e_ui.py
 
+concurrency:
+	$(PY) -m pytest -m concurrency tests/test_concurrency.py
+
 run:
 	$(PY) -m uvicorn api.main:app --reload --port 8000
+
+migrate:
+	$(PY) -m alembic upgrade head
+
+revision:
+	$(PY) -m alembic revision --autogenerate -m "$(m)"
 
 cases:
 	$(PY) evals/build_cases.py

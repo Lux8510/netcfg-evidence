@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 DATABASE_URL = os.getenv("NETCFG_DATABASE_URL", "sqlite:///./netcfg.db")
@@ -16,8 +16,20 @@ class Base(DeclarativeBase):
 
 def make_engine(url: str | None = None):
     url = url or DATABASE_URL
-    connect_args = {"check_same_thread": False} if url.startswith("sqlite") else {}
-    return create_engine(url, future=True, connect_args=connect_args)
+    is_sqlite = url.startswith("sqlite")
+    connect_args = {"check_same_thread": False} if is_sqlite else {}
+    engine = create_engine(url, future=True, connect_args=connect_args, pool_pre_ping=True)
+    if is_sqlite and ":memory:" not in url:
+        @event.listens_for(engine, "connect")
+        def _sqlite_pragmas(dbapi_connection, _record):  # pragma: no cover - exercised via concurrency tests
+            cursor = dbapi_connection.cursor()
+            try:
+                cursor.execute("PRAGMA journal_mode=WAL")
+                cursor.execute("PRAGMA busy_timeout=5000")
+                cursor.execute("PRAGMA foreign_keys=ON")
+            finally:
+                cursor.close()
+    return engine
 
 
 engine = make_engine()

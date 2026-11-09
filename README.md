@@ -20,8 +20,9 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **141 项**
-- 浏览器端到端 **4 项**（真实 Chrome + 真实服务进程）
+- 单元/接口测试 **146 项**
+- 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
+- 浏览器端到端 **6 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
@@ -95,7 +96,17 @@ print(report.as_dict())
 | GET | `/api/explanations/{id}` | 单条解释与校验结果 |
 
 数据库默认 `sqlite:///./netcfg.db`，可用 `NETCFG_DATABASE_URL` 指向 PostgreSQL（模型与触发器按 PG 语法编写，但本机无实例，**未实测**）。
-当前用 `Base.metadata.create_all` 建表，没有迁移工具；本地结构变更时删除 `netcfg.db` 重建即可（单用户开发阶段）。
+
+### 迁移
+
+```bash
+make migrate    # alembic upgrade head
+make revision m="add column"   # 生成新迁移
+```
+
+- 新库：`make migrate` 建表
+- 旧库（由 `create_all` 建的）：`python -m alembic stamp head` 标记为当前版本，之后正常升级
+- 测试会执行 `alembic upgrade head` 并用 `alembic check` 断言迁移与模型无漂移
 
 ## 数据库层保障
 
@@ -195,18 +206,32 @@ EXPLAIN_TIMEOUT=20
 - 声明了 OSPF 但进程块无法解析 → 全部 `undetermined`
 - 完全没有 OSPF → `not_applicable`，不算通过也不算违规
 
+## 真实并发
+
+```bash
+make concurrency
+```
+
+3 条用例，全部是**独立 uvicorn 进程 + 多线程 HTTP**（不是模拟竞赛）：
+
+1. 8 个并发导入同一份配置 → 全部 201、同一个版本 ID、库里只有一条
+2. 两个并发基线切换 → 不出现 500，最终 active 恰好一条
+3. 并发批准与拒绝 → 一个 200、一个 409，审计里只有一条决定
+
 ## 浏览器端到端
 
 ```bash
 make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动跳过
 ```
 
-4 条真实浏览器用例：
+6 条真实浏览器用例：
 
 1. 导入 → 设基线 → 比对 → 两端证据按钮分别打开对应版本的原文
 2. 规则违规 → 生成变更单 → 提交 → 批准 → 审计事件
 3. 切换设备后，上一个设备的 Finding 与未提交表单必须清空
 4. 生成解释后，列表显示规则 ID 与引用
+5. 切换设备时，延迟返回的旧变更单不会渲染
+6. 设备名与变更单标题里的 `<img onerror>` 不会被当作 HTML 执行
 
 单元测试默认排除 `e2e`（`pyproject.toml` 的 `addopts`），所以 `pytest` 仍然是秒级；`make e2e` 单独跑浏览器用例。
 
@@ -260,6 +285,8 @@ evals/run_explain_eval.py  解释引用校验评测
 samples/frr/               真实实验配置样本（脱敏）
 tests/                     解析、漂移、规则、API、评测与审查回归测试
 tests/test_e2e_ui.py       浏览器端到端（真实服务进程 + Chrome）
+tests/test_concurrency.py  真实并发（多线程 HTTP）
+migrations/                Alembic 迁移
 DESIGN.md                  完整设计草案
 docs/CLAIMS_AUDIT.md      承诺与机制对照表
 docs/INTERVIEW_NOTES.md    面试知识点与追问

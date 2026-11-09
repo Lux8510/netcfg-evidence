@@ -51,8 +51,12 @@
 | C13 保存创建时快照 | 强制 | **部分** | 快照不可更新、条数必须一致；但直接 INSERT 可写内容不实的快照 |
 | C15 审计只追加 | 强制 | **部分** | 行级 UPDATE/DELETE 已拒绝，新增 PostgreSQL `BEFORE TRUNCATE`；库所有者仍可 DROP 触发器 |
 | C19 解释行号受引用约束 | 强制 | **强制（已修）** | 中文数字行号无法归一化 → `line_not_normalized` |
-| C29 切换设备不残留 | 强制 | **部分** | 增加请求序号 + 设备身份双重校验；竞态只有代码层与推演，没有可重复测试 |
+| C29 切换设备不残留 | 强制 | **强制（已补测试）** | 请求序号 + 设备身份双校验；新增延迟响应的 E2E 用例 |
 | B02 部分索引可恢复 | — | **强制（已修）** | 启动时 `CREATE UNIQUE INDEX IF NOT EXISTS`；有重复 active 时拒绝启动 |
+| 新增：结构可升级 | — | **强制** | Alembic 迁移 + `alembic check` 断言无漂移 | `tests/test_migrations.py` |
+| 新增：真实并发不产生 500 | — | **强制** | 独立服务进程 + 8 并发导入 / 基线切换 / 审批竞争 | `tests/test_concurrency.py` |
+| 新增：提示注入不改变判定 | — | **强制（结构层）** | 配置中的指令不改变规则；无引用的模型输出被拒 | `tests/test_providers.py` |
+| 新增：XSS 不执行 | — | **强制** | `<img onerror>` 在设备名与变更单标题中只显示为文本 | `tests/test_e2e_ui.py` |
 | B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
 | UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
 | UI03 解释归属同一 run | — | **强制（已修）** | 解释按最新 run 查询，界面显示 run 标识 |

@@ -170,3 +170,66 @@ def test_explanations_show_rejected_and_accepted_marks(page, server):
     page.wait_for_selector("#explain-result article")
     text = page.inner_text("#explain-result")
     assert "R001" in text and "引用" in text
+
+
+import httpx  # noqa: E402
+
+
+def api_post(base: str, path: str, payload: dict) -> dict:
+    with httpx.Client(timeout=10) as http:
+        response = http.post(base + path, json=payload)
+        assert response.status_code < 400, response.text
+        return response.json()["data"]
+
+
+def seed_change_request(base: str, name: str, title: str) -> tuple[str, str]:
+    device = api_post(base, "/api/devices", {"name": name})
+    api_post(base, f"/api/devices/{device['id']}/configs", {"text": BROKEN, "source_name": "b"})
+    run = api_post(base, f"/api/devices/{device['id']}/rules/check", {})
+    request = api_post(base, f"/api/devices/{device['id']}/change-requests", {
+        "title": title,
+        "rationale": "R001 要求显式 cost，需要人工核对后修复。",
+        "finding_ids": [run["findings"][0]["id"]],
+        "proposed_commands": ["interface eth2", " ip ospf cost 10"],
+        "actor": "何深",
+    })
+    return device["id"], request["id"]
+
+
+def test_switching_device_discards_inflight_change_requests(page, server):
+    first, request_id = seed_change_request(server, "race-a", "A 的变更单")
+    second, _ = seed_change_request(server, "race-b", "B 的变更单")
+
+    def slow(route):
+        import time
+        time.sleep(1.2)
+        route.continue_()
+
+    page.route(f"**/api/devices/{first}/change-requests", slow)
+    page.goto(server)
+    page.select_option("#device-select", first)
+    page.wait_for_timeout(150)
+    page.select_option("#device-select", second)
+
+    page.wait_for_timeout(2500)
+    page.click(".tab[data-tab='changes']")
+    stale_buttons = page.evaluate(
+        "(device) => document.querySelectorAll(`[data-device='${device}']`).length", first)
+    assert stale_buttons == 0
+    text = page.inner_text("#changes-result")
+    assert "A 的变更单" not in text
+    assert "B 的变更单" in text
+
+
+def test_user_content_is_escaped_in_the_browser(page, server):
+    payload_name = '<img src=x onerror="window.__xss=1">'
+    title = '<img src=x onerror="window.__xss=2">'
+    seed_change_request(server, payload_name, title)
+
+    page.goto(server)
+    page.click(".tab[data-tab='changes']")
+    page.wait_for_selector("#changes-result article")
+    assert page.evaluate("window.__xss === undefined")
+    assert title in page.inner_text("#changes-result")
+    assert page.evaluate("document.querySelectorAll('#changes-result img').length === 0")
+    assert page.evaluate("document.querySelectorAll('#device-select img').length === 0")
