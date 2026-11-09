@@ -1,0 +1,22 @@
+services:
+  app:
+    build: .
+    image: netcfg-evidence:local
+    ports:
+      - "8000:8000"
+    environment:
+      NETCFG_DATABASE_URL: sqlite:////data/netcfg.db
+      NETCFG_COOKIE_SECURE: "false"
+      NETCFG_SESSION_HOURS: "12"
+      EXPLAIN_PROVIDER: ${EXPLAIN_PROVIDER:-mock}
+      EXPLAIN_BASE_URL: ${EXPLAIN_BASE_URL:-https://api.deepseek.com/v1}
+      EXPLAIN_MODEL: ${EXPLAIN_MODEL:-deepseek-chat}
+      EXPLAIN_API_KEY: ${EXPLAIN_API_KEY:-}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health',timeout=2).status==200 else 1)"]
+      interval: 30s
+      timeout: 3s
+      retries: 3

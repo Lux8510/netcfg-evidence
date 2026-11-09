@@ -68,6 +68,9 @@
 | 新增：接口需要登录 | — | **强制** | 中间件校验会话 Cookie，401 拦截 | `tests/test_auth.py` |
 | 新增：审批需要 approver 角色 | — | **强制** | 路由级角色检查，editor 返回 403 | `tests/test_auth.py` |
 | 新增：审批人来自会话而非请求体 | — | **强制** | 请求体 actor 被忽略，审计取会话用户 | `tests/test_auth.py` |
+| 新增：请求可追踪 | — | **强制** | X-Request-ID + 一行 JSON 日志 | `tests/test_observability.py` |
+| 新增：模型调用可计数 | — | **强制** | 成功/失败、token、延迟计数 | `tests/test_observability.py` |
+| 新增：容器可启动 | — | **强制（仅 CI）** | CI 构建镜像、起容器、打健康检查 | `.github/workflows/ci.yml` |
 | B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
 | UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
 | UI03 解释归属同一 run | — | **强制（已修）** | 解释按最新 run 查询，界面显示 run 标识 |

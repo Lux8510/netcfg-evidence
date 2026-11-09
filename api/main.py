@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable, Iterator
@@ -20,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from domain.netcfg import service
+from engine import observability
 from engine.auth import SESSION_TTL_HOURS
 from engine.db import SessionLocal, init_db
 from engine.models import DriftReport
@@ -109,6 +111,7 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         init_db(init_engine)
         yield
 
+    observability.configure_logging()
     app = FastAPI(title="netcfg-evidence", version="0.1.0", lifespan=lifespan)
     app.state.session_factory = maker
 
@@ -157,6 +160,25 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
 
     def ok(data):
         return {"data": data}
+
+    @app.middleware("http")
+    async def observe(request: Request, call_next):
+        import uuid
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        started = time.perf_counter()
+        response = await call_next(request)
+        duration_ms = (time.perf_counter() - started) * 1000
+        user = getattr(getattr(request, "state", None), "user", None)
+        observability.record_request(request_id=request_id, method=request.method,
+                                     path=request.url.path, status=response.status_code,
+                                     duration_ms=duration_ms,
+                                     user=getattr(user, "username", None))
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+    @app.get("/api/metrics")
+    def metrics():
+        return observability.snapshot()
 
     @app.post("/api/auth/login")
     def login(body: LoginBody, db: Session = Depends(get_db)):

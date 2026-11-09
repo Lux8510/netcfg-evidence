@@ -20,7 +20,7 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **162 项**
+- 单元/接口测试 **166 项**
 - 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
 - 浏览器端到端 **7 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
@@ -28,6 +28,25 @@ python3.12 -m venv .venv
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
 - 解释层：Mock 或 OpenAI 兼容真实模型 + 引用校验，解释不能改变判定
 - 覆盖设备 / 版本 / 基线 / 漂移 / 规则 / Findings 的 HTTP API
+
+## 容器部署
+
+```bash
+docker compose up --build
+# 首次需要建账号：
+docker compose exec app python scripts/create_user.py --username 你的名字 --role admin
+```
+
+镜像以非 root 运行，启动时先 `alembic upgrade head` 再起服务，健康检查打 `/api/health`。
+数据卷 `./data` 持久化 SQLite；要换 PostgreSQL 就改 `NETCFG_DATABASE_URL` 并在镜像里补 `psycopg`。
+
+本机没有 Docker，**镜像由 CI 构建并起容器验证**（见 `.github/workflows/ci.yml` 的 `container` job），本地未运行。
+
+## 可观测性
+
+- 每个请求返回 `X-Request-ID`（也可由客户端传入），日志是一行一个 JSON
+- `GET /api/metrics`（需登录）返回进程内计数：请求数、4xx/5xx、平均/最慢耗时、Top 路径、模型调用次数与 token
+- 计数是进程内的，重启清零；定位问题是够的，不做持久化指标存储
 
 ## 本地账号与角色
 

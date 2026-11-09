@@ -31,3 +31,33 @@ jobs:
         run: python -m pytest -m concurrency tests/test_concurrency.py
       - name: Browser end-to-end (skips if Chrome is unavailable)
         run: python -m pytest -m e2e tests/test_e2e_ui.py
+
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t netcfg-evidence:ci .
+      - name: Run container and check health
+        run: |
+          docker run -d --name netcfg -p 8000:8000 \
+            -e NETCFG_DATABASE_URL=sqlite:////tmp/netcfg.db \
+            -e NETCFG_COOKIE_SECURE=false \
+            netcfg-evidence:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/health >/dev/null 2>&1; then break; fi
+            sleep 1
+          done
+          echo "--- health ---"
+          curl -fsS http://127.0.0.1:8000/api/health
+          echo
+          echo "--- login page ---"
+          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/login.html
+          echo "--- metrics without session must be 401 ---"
+          curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/metrics
+      - name: Show container logs on failure
+        if: failure()
+        run: docker logs netcfg || true
+      - name: Cleanup
+        if: always()
+        run: docker rm -f netcfg || true

@@ -1,0 +1,7 @@
+# runtime only; tests and browser tooling live in requirements-dev.txt
+fastapi==0.128.8
+uvicorn==0.39.0
+httpx==0.28.1
+SQLAlchemy==2.0.40
+alembic==1.15.2
+python-dotenv==1.1.0

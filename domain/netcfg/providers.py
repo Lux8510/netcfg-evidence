@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 
 import httpx
+
+from engine import observability
 
 from .explain import Citation, Explanation, Explainer, ProviderError
 from .rules import Finding as RuleFinding, Rule
@@ -90,6 +93,7 @@ class OpenAICompatibleExplainer:
         return self._client
 
     def explain(self, finding: RuleFinding, rule: Rule) -> Explanation:
+        started = time.perf_counter()
         payload = {
             "model": self.settings.model,
             "messages": [
@@ -107,9 +111,15 @@ class OpenAICompatibleExplainer:
                 json=payload,
             )
         except httpx.HTTPError as exc:
+            observability.record_model_call(provider=self.settings.provider, model=self.settings.model,
+                                            ok=False, latency_ms=(time.perf_counter() - started) * 1000,
+                                            usage=None)
             raise ProviderError("provider_error", f"模型请求失败：{type(exc).__name__}") from exc
 
         if response.status_code != 200:
+            observability.record_model_call(provider=self.settings.provider, model=self.settings.model,
+                                            ok=False, latency_ms=(time.perf_counter() - started) * 1000,
+                                            usage=None)
             raise ProviderError("provider_error", f"模型返回 HTTP {response.status_code}，未采用其输出")
 
         payload = response.json()
@@ -127,5 +137,8 @@ class OpenAICompatibleExplainer:
         if not isinstance(text, str) or not isinstance(citations, tuple):
             raise ProviderError("invalid_response", "模型输出字段类型不符合约定，已丢弃")
         usage = payload.get("usage") if isinstance(payload, dict) else None
-        return Explanation(text=text, citations=citations, model=self.settings.model,
-                           usage=usage if isinstance(usage, dict) else None)
+        usage = usage if isinstance(usage, dict) else None
+        observability.record_model_call(provider=self.settings.provider, model=self.settings.model,
+                                        ok=True, latency_ms=(time.perf_counter() - started) * 1000,
+                                        usage=usage)
+        return Explanation(text=text, citations=citations, model=self.settings.model, usage=usage)
