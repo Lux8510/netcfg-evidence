@@ -36,6 +36,21 @@ class DriftBody(StrictBody):
     current_version_id: str | None = Field(default=None, min_length=36, max_length=36)
 
 
+class ChangeRequestBody(StrictBody):
+    # Bounds that are business rules live in the service so the error carries a domain code.
+    title: str = Field(min_length=1, max_length=160)
+    rationale: str = Field(min_length=1, max_length=2000)
+    finding_ids: list[str] = Field(default_factory=list, max_length=200)
+    proposed_commands: list[str] = Field(default_factory=list, max_length=200)
+    actor: str = Field(min_length=1, max_length=200)
+
+
+class TransitionBody(StrictBody):
+    actor: str = Field(min_length=1, max_length=80)
+    note: str = Field(min_length=1, max_length=1000)
+    idempotency_key: str | None = Field(default=None, min_length=8, max_length=120)
+
+
 def create_app(session_factory: Callable[[], Session] | None = None, init_engine=None) -> FastAPI:
     maker = session_factory or SessionLocal
 
@@ -137,6 +152,37 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     @app.get("/api/versions/{version_id}/lines")
     def version_lines(version_id: str, start: int = 1, end: int = 1, db: Session = Depends(get_db)):
         return ok(service.version_lines(db, version_id, start, end))
+
+    @app.post("/api/devices/{device_id}/change-requests", status_code=201)
+    def create_change_request(device_id: str, body: ChangeRequestBody, db: Session = Depends(get_db)):
+        from domain.netcfg import change_requests as changes
+        request = changes.create_change_request(
+            db, device_id, title=body.title, rationale=body.rationale,
+            finding_ids=body.finding_ids, proposed_commands=body.proposed_commands, actor=body.actor)
+        return ok(changes.request_payload(request))
+
+    @app.get("/api/devices/{device_id}/change-requests")
+    def list_change_requests(device_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import change_requests as changes
+        return ok([changes.request_payload(row) for row in changes.list_change_requests(db, device_id)])
+
+    @app.get("/api/change-requests/{request_id}")
+    def get_change_request(request_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import change_requests as changes
+        return ok(changes.request_payload(changes.get_change_request(db, request_id)))
+
+    @app.get("/api/change-requests/{request_id}/events")
+    def change_request_events(request_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import change_requests as changes
+        return ok([changes.event_payload(row) for row in changes.events(db, request_id)])
+
+    @app.post("/api/change-requests/{request_id}/{action}")
+    def change_request_transition(request_id: str, action: str, body: TransitionBody,
+                                  db: Session = Depends(get_db)):
+        from domain.netcfg import change_requests as changes
+        request = changes.transition(db, request_id, action, actor=body.actor, note=body.note,
+                                     idempotency_key=body.idempotency_key)
+        return ok(changes.request_payload(request))
 
     @app.get("/api/drift/{report_id}")
     def get_drift(report_id: str, db: Session = Depends(get_db)):

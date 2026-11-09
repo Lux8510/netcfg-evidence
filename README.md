@@ -20,9 +20,10 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 测试 **65 项**
+- 测试 **86 项**
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条，三值判定 + not_applicable
+- 变更单状态机 + 强制人工审批 + 追加式审计事件
 - 覆盖设备 / 版本 / 基线 / 漂移 / 规则 / Findings 的 HTTP API
 
 ## 当前能力
@@ -76,8 +77,30 @@ print(report.as_dict())
 | POST | `/api/devices/{id}/rules/check` | 对某版本跑规则，落库 Findings |
 | GET | `/api/devices/{id}/findings` | 查询 Findings（可按 `run_id` 过滤） |
 | GET | `/api/versions/{id}/lines?start=&end=` | 取原始配置行作为证据 |
+| POST | `/api/devices/{id}/change-requests` | 由 violated Finding 生成变更单 |
+| GET | `/api/devices/{id}/change-requests` | 变更单列表 |
+| GET | `/api/change-requests/{id}` | 变更单详情（含创建时的 Finding 快照） |
+| POST | `/api/change-requests/{id}/{submit,approve,reject,apply,cancel}` | 状态流转，必须填真实审批人 |
+| GET | `/api/change-requests/{id}/events` | 追加式审计事件（不可修改） |
 
 数据库默认 `sqlite:///./netcfg.db`，可用 `NETCFG_DATABASE_URL` 指向 PostgreSQL。
+
+## 变更单与人工审批
+
+```text
+draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
+                                pending_approval -> reject -> rejected
+                     draft -> cancel -> cancelled
+```
+
+约束：
+
+- 只能由 **violated** 的 Finding 生成；`undetermined` 不能变成变更单
+- 变更单会保存创建时的 Finding 快照，之后 Finding 变化不影响已提交内容
+- 每次流转必须填写**真实审批人**，`system` / `agent` / `bot` 一律拒绝
+- 所有流转写入 `audit_events`，只追加，没有修改或删除接口
+- `executed_on_device` 恒为 `false`：系统只生成变更单，不下发配置
+- `apply` 只表示"人工已在维护窗口执行"，不验证设备状态
 
 ## 规则与三值判定
 

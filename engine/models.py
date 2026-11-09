@@ -88,3 +88,47 @@ class Finding(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
 
     __table_args__ = (CheckConstraint("status IN ('violated','undetermined')", name="ck_findings_status"),)
+
+
+class ChangeRequest(Base):
+    __tablename__ = "change_requests"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(160), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", index=True)
+    finding_ids: Mapped[list] = mapped_column(JSON, nullable=False)
+    findings_snapshot: Mapped[list] = mapped_column(JSON, nullable=False)
+    proposed_commands: Mapped[list] = mapped_column(JSON, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    approved_by: Mapped[str | None] = mapped_column(String(80))
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('draft','pending_approval','approved','rejected','applied','cancelled')",
+                        name="ck_change_requests_status"),
+    )
+
+
+class AuditEvent(Base):
+    """Append-only record of every state transition. No update or delete API."""
+
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    entity_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    entity_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    action: Mapped[str] = mapped_column(String(40), nullable=False)
+    actor: Mapped[str] = mapped_column(String(80), nullable=False)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    snapshot: Mapped[dict] = mapped_column(JSON, nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), unique=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (Index("ix_audit_entity", "entity_type", "entity_id", "created_at"),)
