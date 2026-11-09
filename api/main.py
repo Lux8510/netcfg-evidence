@@ -103,6 +103,7 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
 
     @app.get("/api/devices/{device_id}/baseline")
     def get_baseline(device_id: str, db: Session = Depends(get_db)):
+        service.get_device_or_404(db, device_id)
         baseline = service.active_baseline(db, device_id)
         if baseline is None:
             return ok(None)

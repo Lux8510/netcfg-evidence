@@ -65,6 +65,26 @@ class DriftReport:
         }
 
 
+def _line(number: int | None) -> tuple[int, ...]:
+    return (number,) if number else ()
+
+
+def _address_evidence(old: Interface, new: Interface) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    """Point at the addresses that actually differ, not always the first one."""
+    old_lines: list[int] = []
+    new_lines: list[int] = []
+    for index in range(max(len(old.addresses), len(new.addresses))):
+        old_value = old.addresses[index] if index < len(old.addresses) else None
+        new_value = new.addresses[index] if index < len(new.addresses) else None
+        if old_value == new_value:
+            continue
+        if index < len(old.address_lines):
+            old_lines.append(old.address_lines[index])
+        if index < len(new.address_lines):
+            new_lines.append(new.address_lines[index])
+    return tuple(old_lines or _block_lines(old)), tuple(new_lines or _block_lines(new))
+
+
 def _block_lines(interface: Interface) -> tuple[int, ...]:
     if interface.start_line and interface.end_line:
         return tuple(range(interface.start_line, interface.end_line + 1))
@@ -82,7 +102,8 @@ def diff_configs(baseline: ParsedConfig, current: ParsedConfig) -> DriftReport:
     items: list[DriftItem] = []
 
     if baseline.hostname != current.hostname:
-        items.append(DriftItem("hostname", "hostname", "changed", baseline.hostname, current.hostname))
+        items.append(DriftItem("hostname", "hostname", "changed", baseline.hostname, current.hostname,
+                               _line(baseline.hostname_line), _line(current.hostname_line)))
 
     base_names = set(baseline.interfaces)
     cur_names = set(current.interfaces)
@@ -100,10 +121,10 @@ def diff_configs(baseline: ParsedConfig, current: ParsedConfig) -> DriftReport:
         new = current.interfaces[name]
         _compare_field(items, name, "description", old.description, new.description,
                        _block_lines(old), _block_lines(new))
-        if sorted(old.addresses) != sorted(new.addresses):
+        if old.addresses != new.addresses:
+            old_lines, new_lines = _address_evidence(old, new)
             items.append(DriftItem(f"interface.{name}.addresses", "interface", "changed",
-                                   sorted(old.addresses), sorted(new.addresses),
-                                   _field_lines(old, "address"), _field_lines(new, "address")))
+                                   list(old.addresses), list(new.addresses), old_lines, new_lines))
         _compare_field(items, name, "shutdown", old.shutdown, new.shutdown,
                        _block_lines(old), _block_lines(new))
         _compare_field(items, name, "ospf.area", old.ospf.area, new.ospf.area,

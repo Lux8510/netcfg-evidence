@@ -2,7 +2,7 @@
 
 **把网络设备配置当作有版本的证据：任何一条判定都能指回具体的配置行、规则来源和审批记录。**
 
-当前进度：W1 —— 解析器 + 漂移检测 + 持久化 API + 4 条确定性规则 + 证据查询 + 20 例漂移评测（前端待做）。
+当前进度：W1 —— 解析器 + 漂移检测 + 持久化 API + 4 条确定性规则 + 三值判定 + 证据查询 + 20 例漂移评测（前端待做）。
 
 - 不连接设备、不下发配置、不仿真全网转发
 - 解析器只覆盖**明确声明**的 FRR 语法子集，未知行逐条记录，不静默丢弃
@@ -17,6 +17,13 @@ python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q
 ```
+
+## 当前状态
+
+- 测试 **65 项**
+- 评测 **20/20**，precision / recall 1.0000
+- 规则 4 条，三值判定 + not_applicable
+- 覆盖设备 / 版本 / 基线 / 漂移 / 规则 / Findings 的 HTTP API
 
 ## 当前能力
 
@@ -83,7 +90,11 @@ print(report.as_dict())
 | R003 | Loopback 接口必须 passive | `lo` 有地址但不在 passive 列表 |
 | R004 | router-id 必须是本机 Loopback 地址 | 不一致 |
 
-每条规则的判定结果是 **violated / satisfied / undetermined**。当配置里存在未解析的 OSPF 相关行时，结果为 `undetermined`，**不会**被当成通过。
+每条规则的判定结果是 **violated / satisfied / undetermined**；配置里根本没有 OSPF 时单列为 **not_applicable**。
+
+- 存在未解析的 OSPF 相关行（包括 `no ...` 与 `router ospf <instance>`）→ `undetermined`，**不会**被当成通过
+- 声明了 OSPF 但进程块无法解析 → 全部 `undetermined`
+- 完全没有 OSPF → `not_applicable`，不算通过也不算违规
 
 ## 审查
 
@@ -102,7 +113,9 @@ make review-kit   # 打印用 Codex 审查的最短步骤
 make eval    # 20 个人工标注的漂移案例
 ```
 
-当前结果：**20/20 精确匹配，precision 1.0000，recall 1.0000**。期望值由人工写死，不由被测实现生成。
+当前结果：**20/20 精确匹配，precision 1.0000，recall 1.0000**。
+
+期望值由人工写死，不由被测实现生成。部分案例还声明了 `expected_items`（kind、old/new、证据行号），所以把 10→20 写成 20→10 会被判失败；每条漂移还必须带证据行号。
 
 ## 目录
 
@@ -117,7 +130,7 @@ api/main.py                FastAPI 路由
 evals/build_cases.py       生成 20 个漂移案例
 evals/run_eval.py          评测脚本（precision/recall）
 samples/frr/               真实实验配置样本（脱敏）
-tests/                     解析与漂移测试
+tests/                     解析、漂移、规则、API、评测与审查回归测试
 DESIGN.md                  完整设计草案
 docs/INTERVIEW_NOTES.md    面试知识点与追问
 ```

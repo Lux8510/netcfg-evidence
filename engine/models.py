@@ -37,6 +37,7 @@ class ConfigVersion(Base):
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     raw_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     canonical_sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    parser_version: Mapped[str] = mapped_column(String(40), nullable=False, default="unknown")
     parsed: Mapped[dict] = mapped_column(JSON, nullable=False)
     unparsed: Mapped[list] = mapped_column(JSON, nullable=False)
     line_count: Mapped[int] = mapped_column(Integer, nullable=False)

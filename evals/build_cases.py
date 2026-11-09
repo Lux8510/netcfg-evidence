@@ -16,8 +16,12 @@ OUT = ROOT / "evals/cases.json"
 CASES: list[dict] = []
 
 
-def case(case_id: str, description: str, current: str, expected: list[str]) -> None:
-    CASES.append({"id": case_id, "description": description, "current": current, "expected_paths": expected})
+def case(case_id: str, description: str, current: str, expected: list[str],
+         items: list[dict] | None = None) -> None:
+    entry = {"id": case_id, "description": description, "current": current, "expected_paths": expected}
+    if items:
+        entry["expected_items"] = items
+    CASES.append(entry)
 
 
 def replace(text: str, old: str, new: str) -> str:
@@ -27,7 +31,9 @@ def replace(text: str, old: str, new: str) -> str:
 
 case("D01", "无变化", BASELINE, [])
 case("D02", "互联接口 cost 10 → 20",
-     replace(BASELINE, " ip ospf cost 10", " ip ospf cost 20"), ["interface.eth2.ospf.cost"])
+     replace(BASELINE, " ip ospf cost 10", " ip ospf cost 20"), ["interface.eth2.ospf.cost"],
+     [{"path": "interface.eth2.ospf.cost", "kind": "changed", "old": 10, "new": 20,
+       "old_lines": [14], "new_lines": [14]}])
 case("D03", "互联接口删除 cost",
      replace(BASELINE, " ip ospf cost 10\n", ""), ["interface.eth2.ospf.cost"])
 case("D04", "单条 network 的 area 变更",
@@ -57,7 +63,8 @@ case("D12", "接口地址变更",
      ["interface.eth2.addresses"])
 case("D13", "删除 eth3 接口整段",
      replace(BASELINE, "interface eth3\n description r1-to-r3-backup\n ip address 10.13.0.1/30\n ip ospf network point-to-point\n ip ospf cost 50\n!\n", ""),
-     ["interface.eth3"])
+     ["interface.eth3"],
+     [{"path": "interface.eth3", "kind": "removed", "old_not_null": True, "new": None}])
 case("D14", "新增 eth9 接口",
      BASELINE + "\ninterface eth9\n description spare\n ip address 10.99.0.1/30\n!\n",
      ["interface.eth9"])
@@ -65,7 +72,9 @@ case("D15", "router-id 变更",
      replace(BASELINE, " ospf router-id 10.255.1.1", " ospf router-id 10.255.1.9"),
      ["ospf.router_id"])
 case("D16", "hostname 变更",
-     replace(BASELINE, "hostname r1", "hostname r1-renamed"), ["hostname"])
+     replace(BASELINE, "hostname r1", "hostname r1-renamed"), ["hostname"],
+     [{"path": "hostname", "kind": "changed", "old": "r1", "new": "r1-renamed",
+       "old_lines": [2], "new_lines": [2]}])
 case("D17", "新增 default-information originate",
      replace(BASELINE, " passive-interface eth1\n", " passive-interface eth1\n default-information originate\n"),
      ["ospf.default_information"])
@@ -79,7 +88,11 @@ case("D20", "三处同时变更（cost / passive / network）",
      replace(replace(replace(BASELINE, " ip ospf cost 10", " ip ospf cost 30"),
                      " passive-interface lo\n", ""),
              " network 10.13.0.0/30 area 0.0.0.0\n", ""),
-     ["interface.eth2.ospf.cost", "ospf.passive_interfaces", "ospf.networks"])
+     ["interface.eth2.ospf.cost", "ospf.passive_interfaces", "ospf.networks"],
+     [{"path": "interface.eth2.ospf.cost", "kind": "changed", "old": 10, "new": 30,
+       "old_lines": [14], "new_lines": [14]},
+      {"path": "ospf.passive_interfaces", "kind": "changed", "old": ["eth1", "lo"], "new": ["eth1"]},
+      {"path": "ospf.networks", "kind": "changed"}])
 
 
 def main() -> None:

@@ -73,7 +73,9 @@ def test_full_drift_flow(app_client, r1_text):
     assert report.status_code == 201, report.text
     data = report.json()["data"]
     assert data["identical"] is False
-    assert data["summary"] == {"added": 0, "removed": 0, "changed": 1, "total": 1}
+    assert {key: data["summary"][key] for key in ("added", "removed", "changed", "total")} == {
+        "added": 0, "removed": 0, "changed": 1, "total": 1}
+    assert data["summary"]["unparsed_baseline"] == 0
     assert data["current_version_id"] == current_version
     item = data["items"][0]
     assert item["path"] == "interface.eth2.ospf.cost"
@@ -144,7 +146,7 @@ def test_rules_check_clean_config_has_no_findings(app_client, r1_text):
     device_id = create_device(app_client)
     version_id = import_config(app_client, device_id, r1_text).json()["data"]["id"]
     result = app_client.post(f"/api/devices/{device_id}/rules/check", json={}).json()["data"]
-    assert result["counts"] == {"rules_checked": 4, "rules_satisfied": 4,
+    assert result["counts"] == {"rules_checked": 4, "rules_satisfied": 4, "rules_not_applicable": 0,
                                 "findings_violated": 0, "findings_undetermined": 0}
     assert result["findings"] == []
     assert result["config_version_id"] == version_id

@@ -13,7 +13,7 @@ from typing import Callable, Iterable
 
 from .parser import ParsedConfig
 
-UNCERTAIN_LINE_RE = re.compile(r"^(?:ip\s+ospf|network\s+|passive-interface\s+)")
+UNCERTAIN_LINE_RE = re.compile(r"^(?:no\s+|router\s+ospf|ip\s+ospf|network\s+|passive-interface\s+)")
 
 
 @dataclass(frozen=True)
@@ -86,10 +86,11 @@ def check_p2p_requires_cost(parsed: ParsedConfig) -> list[Finding]:
             continue
         if interface.ospf.cost is not None:
             continue
+        evidence_line = interface.ospf.lines.get("cost") or interface.start_line
         findings.append(Finding(
             "R001", "violated",
             f"接口 {name} 声明为 point-to-point，但未显式设置 ip ospf cost；将依赖默认值。",
-            (Evidence("parsed_value", interface.start_line, line_text(parsed, interface.start_line),
+            (Evidence("config_line", evidence_line, line_text(parsed, evidence_line),
                       f"interface.{name}.ospf.cost"),),
         ))
     if findings:
@@ -186,7 +187,26 @@ RULES: tuple[Rule, ...] = (
 )
 
 
+OSPF_DECLARED_RE = re.compile(r"^\s*router\s+ospf\b", re.MULTILINE)
+
+
 def run_rules(parsed: ParsedConfig, rules: Iterable[Rule] = RULES) -> dict:
+    rules = tuple(rules)
+    declared = bool(OSPF_DECLARED_RE.search(parsed.raw_text))
+    if not declared:
+        # No OSPF process at all: these rules do not apply. Do not call that "satisfied".
+        return {"rules_checked": len(rules), "rules_satisfied": 0, "rules_not_applicable": len(rules),
+                "findings_violated": 0, "findings_undetermined": 0, "findings": []}
+
+    if parsed.ospf is None:
+        # The text declares OSPF but the process block could not be parsed.
+        reason = "配置声明了 OSPF，但进程块未被识别；无法确认下列规则的前提。"
+        evidence = tuple(Evidence("config_line", line.number, line.text)
+                         for line in parsed.unparsed if line.text.lower().startswith("router ospf"))[:3]
+        findings = [Finding(rule.id, "undetermined", reason, evidence) for rule in rules]
+        return {"rules_checked": len(rules), "rules_satisfied": 0, "rules_not_applicable": 0,
+                "findings_violated": 0, "findings_undetermined": len(findings), "findings": findings}
+
     findings: list[Finding] = []
     checked = 0
     for rule in rules:
@@ -198,6 +218,7 @@ def run_rules(parsed: ParsedConfig, rules: Iterable[Rule] = RULES) -> dict:
     return {
         "rules_checked": checked,
         "rules_satisfied": checked - rules_with_findings,
+        "rules_not_applicable": 0,
         "findings_violated": violated,
         "findings_undetermined": undetermined,
         "findings": findings,

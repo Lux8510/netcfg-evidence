@@ -5,13 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from engine.models import Baseline, ConfigVersion, Device, DriftReport, Finding
 from engine.models import uid
 
 from .drift import diff_configs
-from .parser import ParsedConfig, parse_frr_config
+from .parser import PARSER_VERSION, ParsedConfig, parse_frr_config
 
 
 class ServiceError(Exception):
@@ -43,6 +44,10 @@ def create_device(db: Session, name: str) -> Device:
     return device
 
 
+def get_device_or_404(db: Session, device_id: str) -> Device:
+    return _device(db, device_id)
+
+
 def list_devices(db: Session) -> list[Device]:
     return list(db.scalars(select(Device).order_by(Device.created_at, Device.id)))
 
@@ -64,18 +69,37 @@ def import_config(db: Session, device_id: str, text: str, source_name: str) -> t
     if existing is not None:
         return existing, False
 
+    return _persist_version(db, device, parsed)
+
+
+def _persist_version(db: Session, device: Device, parsed: ParsedConfig) -> tuple[ConfigVersion, bool]:
+    """Insert a version, resolving the unique-constraint race without a 500."""
     version = ConfigVersion(
         device_id=device.id,
         source_name=parsed.source_name,
         raw_text=parsed.raw_text,
         raw_sha256=parsed.raw_sha256,
         canonical_sha256=parsed.canonical_sha256,
+        parser_version=PARSER_VERSION,
         parsed=parsed.canonical(),
         unparsed=[line.as_dict() for line in parsed.unparsed],
         line_count=parsed.line_count,
     )
-    db.add(version)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(version)
+            db.flush()
+    except IntegrityError:
+        # A concurrent import won the unique constraint. Read the winner back.
+        existing = db.scalar(
+            select(ConfigVersion).where(
+                ConfigVersion.device_id == device.id,
+                ConfigVersion.raw_sha256 == parsed.raw_sha256,
+            )
+        )
+        if existing is None:
+            raise
+        return existing, False
     return version, True
 
 
@@ -121,9 +145,24 @@ def set_baseline(db: Session, device_id: str, version_id: str) -> Baseline:
             return current
         current.active = False
         db.flush()
+    return _activate_baseline(db, device_id, version)
+
+
+def _activate_baseline(db: Session, device_id: str, version: ConfigVersion) -> Baseline:
+    """Insert the active baseline, resolving the partial-unique race without a 500."""
     baseline = Baseline(device_id=device_id, config_version_id=version.id, active=True)
-    db.add(baseline)
-    db.flush()
+    try:
+        with db.begin_nested():
+            db.add(baseline)
+            db.flush()
+    except IntegrityError:
+        # Another request activated a baseline first; report it instead of a 500.
+        db.expire_all()
+        winner = active_baseline(db, device_id)
+        if winner is not None and winner.config_version_id == version.id:
+            return winner
+        current_id = winner.config_version_id if winner else None
+        raise ServiceError("BASELINE_CONFLICT", f"基线已被并发更新，请刷新后重试（当前基线 {current_id}）", 409) from None
     return baseline
 
 
@@ -137,16 +176,18 @@ def compute_drift(db: Session, device_id: str, current_version_id: str | None = 
     if current.device_id != device_id:
         raise ServiceError("VERSION_MISMATCH", "配置版本不属于该设备", 422)
 
-    report = diff_configs(
-        parse_frr_config(base_version.raw_text, base_version.source_name),
-        parse_frr_config(current.raw_text, current.source_name),
-    )
+    parsed_base = parse_frr_config(base_version.raw_text, base_version.source_name)
+    parsed_current = parse_frr_config(current.raw_text, current.source_name)
+    report = diff_configs(parsed_base, parsed_current)
+    summary = report.summary()
+    summary["unparsed_baseline"] = len(parsed_base.unparsed)
+    summary["unparsed_current"] = len(parsed_current.unparsed)
     stored = DriftReport(
         device_id=device_id,
         baseline_id=baseline.id,
         current_version_id=current.id,
         identical=report.identical,
-        summary=report.summary(),
+        summary=summary,
         items=[item.as_dict() for item in report.items],
     )
     db.add(stored)
@@ -171,6 +212,7 @@ def version_payload(version: ConfigVersion, include_text: bool = False) -> dict[
         "raw_sha256": version.raw_sha256,
         "canonical_sha256": version.canonical_sha256,
         "line_count": version.line_count,
+        "parser_version": parsed_version_of(version),
         "parsed": version.parsed,
         "unparsed": version.unparsed,
         "created_at": version.created_at.isoformat(),
@@ -204,6 +246,7 @@ def run_rules_check(db: Session, device_id: str, version_id: str | None = None) 
 
     parsed = parse_frr_config(version.raw_text, version.source_name)
     result = rules_module.run_rules(parsed)
+    digest_matches = parsed.canonical_sha256 == version.canonical_sha256
     run_id = uid()
     stored = []
     for finding in result["findings"]:
@@ -219,15 +262,22 @@ def run_rules_check(db: Session, device_id: str, version_id: str | None = None) 
         "run_id": run_id,
         "device_id": device_id,
         "config_version_id": version.id,
-        "digest": {"sha256": version.raw_sha256, "canonical_sha256": version.canonical_sha256},
+        "digest": {"sha256": version.raw_sha256, "canonical_sha256": version.canonical_sha256,
+                   "recomputed_canonical_sha256": parsed.canonical_sha256,
+                   "parser_version": parsed_version_of(version), "matches": digest_matches},
         "counts": {
             "rules_checked": result["rules_checked"],
             "rules_satisfied": result["rules_satisfied"],
+            "rules_not_applicable": result.get("rules_not_applicable", 0),
             "findings_violated": result["findings_violated"],
             "findings_undetermined": result["findings_undetermined"],
         },
         "findings": [finding_payload(row) for row in stored],
     }
+
+
+def parsed_version_of(version: ConfigVersion) -> str:
+    return getattr(version, "parser_version", None) or "unknown"
 
 
 def finding_payload(row: Finding) -> dict[str, Any]:
@@ -254,12 +304,11 @@ def list_findings(db: Session, device_id: str, run_id: str | None = None) -> lis
 
 def version_lines(db: Session, version_id: str, start: int, end: int) -> dict[str, Any]:
     version = get_version(db, version_id)
-    start = max(1, start)
-    if end < start or end - start > 200:
+    if start < 1 or end < start or (end - start + 1) > 200:
         raise ServiceError("LINE_RANGE_INVALID", "行号范围无效或超过 200 行", 422)
-    end = min(end, version.line_count)
-    if end < start:
+    if start > version.line_count:
         raise ServiceError("LINE_RANGE_INVALID", "行号范围超出该版本行数", 422)
+    end = min(end, version.line_count)
     lines = version.raw_text.splitlines()
     return {
         "version_id": version.id,

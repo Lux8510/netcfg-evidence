@@ -16,6 +16,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any
 
+PARSER_VERSION = "frr-subset-2"
+
 INTERFACE_RE = re.compile(r"^interface\s+(\S+)$")
 ROUTER_OSPF_RE = re.compile(r"^router\s+ospf$")
 HOSTNAME_RE = re.compile(r"^hostname\s+(\S+)$")
@@ -25,6 +27,12 @@ IP_OSPF_COST_RE = re.compile(r"^ip\s+ospf\s+cost\s+(\d{1,5})$")
 IP_OSPF_AREA_RE = re.compile(r"^ip\s+ospf\s+area\s+(\S+)$")
 IP_OSPF_NETWORK_RE = re.compile(r"^ip\s+ospf\s+network\s+(\S+)$")
 IP_OSPF_PASSIVE_RE = re.compile(r"^ip\s+ospf\s+passive$")
+NO_IP_OSPF_COST_RE = re.compile(r"^no\s+ip\s+ospf\s+cost$")
+NO_IP_OSPF_AREA_RE = re.compile(r"^no\s+ip\s+ospf\s+area(?:\s+\S+)?$")
+NO_IP_OSPF_NETWORK_RE = re.compile(r"^no\s+ip\s+ospf\s+network(?:\s+\S+)?$")
+NO_IP_OSPF_PASSIVE_RE = re.compile(r"^no\s+ip\s+ospf\s+passive$")
+NO_IP_ADDRESS_RE = re.compile(r"^no\s+ip\s+address\s+(\d{1,3}(?:\.\d{1,3}){3}/\d{1,2})$")
+NO_SHUTDOWN_RE = re.compile(r"^no\s+shutdown$")
 SHUTDOWN_RE = re.compile(r"^shutdown$")
 ROUTER_ID_RE = re.compile(r"^ospf\s+router-id\s+(\d{1,3}(?:\.\d{1,3}){3})$")
 NETWORK_RE = re.compile(r"^network\s+(\d{1,3}(?:\.\d{1,3}){3}/\d{1,2})\s+area\s+(\S+)$")
@@ -76,6 +84,7 @@ class Interface:
     name: str
     description: str | None = None
     addresses: list[str] = field(default_factory=list)
+    address_lines: list[int] = field(default_factory=list)
     shutdown: bool = False
     ospf: OspfInterface = field(default_factory=OspfInterface)
     start_line: int = 0
@@ -84,7 +93,7 @@ class Interface:
     def canonical(self) -> dict[str, Any]:
         return {
             "description": self.description,
-            "addresses": sorted(self.addresses),
+            "addresses": list(self.addresses),
             "shutdown": self.shutdown,
             "ospf": self.ospf.canonical(),
         }
@@ -128,6 +137,7 @@ class ParsedConfig:
     raw_sha256: str
     canonical_sha256: str
     hostname: str | None
+    hostname_line: int | None
     interfaces: dict[str, Interface]
     ospf: OspfProcess | None
     unparsed: list[SourceLine]
@@ -167,6 +177,7 @@ def parse_frr_config(text: str, source_name: str = "config") -> ParsedConfig:
         raise ConfigParseError("配置文件行数超出上限")
 
     hostname: str | None = None
+    hostname_line: int | None = None
     interfaces: dict[str, Interface] = {}
     ospf: OspfProcess | None = None
     unparsed: list[SourceLine] = []
@@ -233,6 +244,7 @@ def parse_frr_config(text: str, source_name: str = "config") -> ParsedConfig:
 
         if match := HOSTNAME_RE.match(stripped):
             hostname = match.group(1)
+            hostname_line = index
             continue
         if IGNORED_TOP_LEVEL_RE.match(stripped):
             if stripped.startswith("line vty"):
@@ -251,6 +263,7 @@ def parse_frr_config(text: str, source_name: str = "config") -> ParsedConfig:
         raw_sha256=raw_hash(text),
         canonical_sha256=canonical_hash(canonical),
         hostname=hostname,
+        hostname_line=hostname_line,
         interfaces=interfaces,
         ospf=ospf,
         unparsed=unparsed,
@@ -266,7 +279,36 @@ def _parse_interface_line(stripped: str, index: int, interface: Interface) -> bo
         address = match.group(1)
         if address not in interface.addresses:
             interface.addresses.append(address)
+            interface.address_lines.append(index)
         interface.ospf.lines.setdefault("address", index)
+        return True
+    if match := NO_IP_ADDRESS_RE.match(stripped):
+        address = match.group(1)
+        if address in interface.addresses:
+            position = interface.addresses.index(address)
+            interface.addresses.pop(position)
+            interface.address_lines.pop(position)
+            interface.ospf.lines["address_removed"] = index
+        return True
+    if NO_IP_OSPF_COST_RE.match(stripped):
+        interface.ospf.cost = None
+        interface.ospf.lines["cost"] = index
+        return True
+    if NO_IP_OSPF_AREA_RE.match(stripped):
+        interface.ospf.area = None
+        interface.ospf.lines["area"] = index
+        return True
+    if NO_IP_OSPF_NETWORK_RE.match(stripped):
+        interface.ospf.network_type = None
+        interface.ospf.lines["network_type"] = index
+        return True
+    if NO_IP_OSPF_PASSIVE_RE.match(stripped):
+        interface.ospf.passive = None
+        interface.ospf.lines["passive"] = index
+        return True
+    if NO_SHUTDOWN_RE.match(stripped):
+        interface.shutdown = False
+        interface.ospf.lines["shutdown"] = index
         return True
     if match := IP_OSPF_COST_RE.match(stripped):
         interface.ospf.cost = int(match.group(1))
@@ -286,6 +328,7 @@ def _parse_interface_line(stripped: str, index: int, interface: Interface) -> bo
         return True
     if SHUTDOWN_RE.match(stripped):
         interface.shutdown = True
+        interface.ospf.lines["shutdown"] = index
         return True
     return False
 
