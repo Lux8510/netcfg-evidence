@@ -7,7 +7,8 @@ dependencies = []
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
-addopts = "-q -m 'not e2e and not concurrency'"
+addopts = "-q -m 'not e2e and not concurrency and not load'"
 markers = ["e2e: real-browser end-to-end tests (need Chrome and playwright)",
-           "concurrency: real parallel HTTP requests against a live server"]
+           "concurrency: real parallel HTTP requests against a live server",
+           "load: short throughput/latency check against a live server"]
 

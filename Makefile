@@ -1,6 +1,6 @@
 PY ?= python3
 
-.PHONY: test e2e concurrency model-check user run migrate revision eval cases bundle check review-kit clean
+.PHONY: test prop e2e concurrency load model-check user run migrate revision eval cases bundle check review-kit clean
 
 test:
 	$(PY) -m pytest
@@ -8,8 +8,14 @@ test:
 e2e:
 	$(PY) -m pytest -m e2e tests/test_e2e_ui.py
 
+prop:
+	$(PY) -m pytest tests/test_properties.py
+
 concurrency:
 	$(PY) -m pytest -m concurrency tests/test_concurrency.py
+
+load:
+	$(PY) -m pytest -m load tests/test_load.py
 
 model-check:
 	$(PY) scripts/check_model.py

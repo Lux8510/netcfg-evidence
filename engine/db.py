@@ -20,11 +20,17 @@ def make_engine(url: str | None = None):
     connect_args = {"check_same_thread": False} if is_sqlite else {}
     engine = create_engine(url, future=True, connect_args=connect_args, pool_pre_ping=True)
     if is_sqlite and ":memory:" not in url:
+        # WAL is a persistent property; setting it once avoids a per-connection
+        # write lock. busy_timeout/foreign_keys are per-connection.
+        with engine.begin() as connection:
+            connection.exec_driver_sql("PRAGMA journal_mode=WAL")
+
         @event.listens_for(engine, "connect")
         def _sqlite_pragmas(dbapi_connection, _record):  # pragma: no cover - exercised via concurrency tests
+            # journal_mode is a persistent database property: set it once at init,
+            # not per connection (doing it here takes a write lock and can stall).
             cursor = dbapi_connection.cursor()
             try:
-                cursor.execute("PRAGMA journal_mode=WAL")
                 cursor.execute("PRAGMA busy_timeout=5000")
                 cursor.execute("PRAGMA foreign_keys=ON")
             finally:
@@ -43,3 +49,6 @@ def init_db(target_engine=None) -> None:
     target = target_engine or engine
     Base.metadata.create_all(target)
     ensure_append_only(target)
+    if target.dialect.name == "sqlite":
+        with target.begin() as connection:
+            connection.exec_driver_sql("PRAGMA journal_mode=WAL")

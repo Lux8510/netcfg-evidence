@@ -20,7 +20,7 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **166 项**
+- 单元/接口测试 **174 项**（含 8 条 hypothesis 属性测试）
 - 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
 - 浏览器端到端 **7 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
@@ -286,6 +286,24 @@ make model-check
 - 存在未解析的 OSPF 相关行（包括 `no ...` 与 `router ospf <instance>`）→ `undetermined`，**不会**被当成通过
 - 声明了 OSPF 但进程块无法解析 → 全部 `undetermined`
 - 完全没有 OSPF → `not_applicable`，不算通过也不算违规
+
+## 属性测试与压测
+
+```bash
+make prop    # hypothesis：解析幂等、注释/顺序不变性、diff 自反与路径对称
+make load    # 150 请求 / 15 并发，0 错误且 p95 有阈值
+```
+
+属性测试抓到过一个真实错误假设：先 `no ip ospf cost` 再 `ip ospf cost 10`，最终 cost 是 10 而不是"否定永远生效"。
+
+压测脚本可直接对演示实例跑：
+
+```bash
+python scripts/load.py --base http://127.0.0.1:8020 --requests 300 --concurrency 20 \
+  --username 何深 --password '...'
+```
+
+本机实测（300 请求 / 20 并发，SQLite WAL）：**887 rps，p50 20.6ms，p95 34.1ms，0 错误**。
 
 ## 真实并发
 

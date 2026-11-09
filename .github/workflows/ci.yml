@@ -29,6 +29,8 @@ jobs:
         run: python tools/check_publication.py
       - name: Real concurrency
         run: python -m pytest -m concurrency tests/test_concurrency.py
+      - name: Short load check
+        run: python -m pytest -m load tests/test_load.py
       - name: Browser end-to-end (skips if Chrome is unavailable)
         run: python -m pytest -m e2e tests/test_e2e_ui.py
 
