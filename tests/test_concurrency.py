@@ -123,13 +123,15 @@ def test_concurrent_approve_and_reject_leave_one_decision(server):
     import_config(server, device_id, BASELINE.replace(" ip ospf cost 10\n", ""), "broken")
     with client(token) as http:
         run = http.post(base + f"/api/devices/{device_id}/rules/check", json={}).json()["data"]
-        request = http.post(base + f"/api/devices/{device_id}/change-requests", json={
+        created = http.post(base + f"/api/devices/{device_id}/change-requests", json={
             "title": "补回 cost",
             "rationale": "R001 要求显式 cost，需要人工核对后修复。",
             "finding_ids": [run["findings"][0]["id"]],
             "proposed_commands": ["interface eth2", " ip ospf cost 10"],
             "actor": "何深",
-        }).json()["data"]
+        })
+        assert created.status_code == 201, created.text
+        request = created.json()["data"]
         http.post(base + f"/api/change-requests/{request['id']}/submit", json={"note": "提交"})
 
     def decide(action: str) -> int:
