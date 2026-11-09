@@ -197,3 +197,21 @@ event.listen(
     DDL("""CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
            FOR EACH ROW EXECUTE FUNCTION prevent_audit_mutation();""").execute_if(dialect="postgresql"),
 )
+
+
+# --- configuration versions are append-only: updates are rejected by the database ---
+event.listen(
+    ConfigVersion.__table__, "after_create",
+    DDL("""CREATE TRIGGER config_versions_no_update BEFORE UPDATE ON config_versions
+           BEGIN SELECT RAISE(ABORT, 'config_versions is append-only'); END;""").execute_if(dialect="sqlite"),
+)
+event.listen(
+    ConfigVersion.__table__, "after_create",
+    DDL("""CREATE OR REPLACE FUNCTION prevent_config_version_update() RETURNS trigger AS $$
+           BEGIN RAISE EXCEPTION 'config_versions is append-only'; END; $$ LANGUAGE plpgsql;""").execute_if(dialect="postgresql"),
+)
+event.listen(
+    ConfigVersion.__table__, "after_create",
+    DDL("""CREATE TRIGGER config_versions_no_update BEFORE UPDATE ON config_versions
+           FOR EACH ROW EXECUTE FUNCTION prevent_config_version_update();""").execute_if(dialect="postgresql"),
+)

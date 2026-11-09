@@ -5,7 +5,7 @@
 当前进度：W1–W2 —— 解析器 + 漂移检测 + 持久化 API + 4 条确定性规则 + 三值判定 + 变更单审批 + 解释层 + 三套评测 + 网页工作台。
 
 - 不连接设备、不下发配置、不仿真全网转发
-- 解析器只覆盖**明确声明**的 FRR 语法子集，未知行逐条记录，不静默丢弃
+- 解析器只覆盖**明确声明**的 FRR 语法子集；除少量显式忽略的配置块（如 `line vty`）外，未知行逐条记录，不静默丢弃
 - 每个解析结果都带源文件行号，供后续 Finding 引用
 
 ## 快速开始
@@ -20,7 +20,7 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 测试 **116 项**
+- 测试 **120 项**
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
@@ -93,7 +93,7 @@ print(report.as_dict())
 | GET | `/api/devices/{id}/explanations` | 解释列表（含 rejected） |
 | GET | `/api/explanations/{id}` | 单条解释与校验结果 |
 
-数据库默认 `sqlite:///./netcfg.db`，可用 `NETCFG_DATABASE_URL` 指向 PostgreSQL。
+数据库默认 `sqlite:///./netcfg.db`，可用 `NETCFG_DATABASE_URL` 指向 PostgreSQL（模型与触发器按 PG 语法编写，但本机无实例，**未实测**）。
 当前用 `Base.metadata.create_all` 建表，没有迁移工具；本地结构变更时删除 `netcfg.db` 重建即可（单用户开发阶段）。
 
 ## 变更单与人工审批
@@ -108,7 +108,7 @@ draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
 
 - 只能由 **violated** 的 Finding 生成；`undetermined` 不能变成变更单
 - 变更单会保存创建时的 Finding 快照，之后 Finding 变化不影响已提交内容
-- 每次流转必须填写**真实审批人**，`system` / `agent` / `bot` 一律拒绝
+- 每次流转必须填写审批人；常见系统/Agent 标识（`system`/`agent`/`bot`/`model` 等，含全角写法）会被拒绝。这是启发式校验，不构成身份认证
 - 所有流转写入 `audit_events`：HTTP 层没有修改接口，数据库层用触发器拒绝 UPDATE/DELETE
 - 审批人是 Compare-And-Set 更新：两个相反的审批并发时只有一个成功，失败方返回 409 且不写事件
 - 审批人名称先做 Unicode NFKC 规范化，全角 `ＡＧＥＮＴ` 也会被拒绝
@@ -131,7 +131,8 @@ draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
 | 不能声称"已修改/已下发" | `overclaim` |
 | 长度 10–2000 且无控制字符 | `text_invalid` |
 
-校验不通过的解释**仍会保存**（`status=rejected`），但不会进入展示，也不会影响 Finding。
+校验不通过的解释**仍会保存**（`status=rejected`），前端以红色标记展示以便审计，但**不会影响 Finding**。
+引用校验只覆盖"引用结构 + 行号一致性"，不校验文字里的语义新增——这一点在 [承诺自查](docs/CLAIMS_AUDIT.md) 里明确列出。
 
 ## 规则与三值判定
 
@@ -177,6 +178,11 @@ make eval    # 漂移 20 例 + 规则判定 15 例 + 解释校验 15 例
 
 期望值由人工写死，不由被测实现生成。部分案例还声明了 `expected_items`（kind、old/new、证据行号），所以把 10→20 写成 20→10 会被判失败；每条漂移还必须带证据行号。
 
+## 承诺 vs 机制
+
+所有对外承诺逐条对照代码与测试，见 [docs/CLAIMS_AUDIT.md](docs/CLAIMS_AUDIT.md)：
+11 条由机制强制、4 条部分强制、0 条纯文案；发现的 3 处措辞过宽已收窄。
+
 ## 目录
 
 ```text
@@ -195,6 +201,7 @@ evals/run_explain_eval.py  解释引用校验评测
 samples/frr/               真实实验配置样本（脱敏）
 tests/                     解析、漂移、规则、API、评测与审查回归测试
 DESIGN.md                  完整设计草案
+docs/CLAIMS_AUDIT.md      承诺与机制对照表
 docs/INTERVIEW_NOTES.md    面试知识点与追问
 ```
 
