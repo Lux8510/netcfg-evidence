@@ -187,7 +187,13 @@ EXPLAIN_TIMEOUT=20
 - 即使模型输出结构合法，仍要通过与 Mock 相同的引用校验
 - 错误信息与落库文本不包含密钥
 
-模型适配器目前只用进程内 `MockTransport` 测过，**没有调用真实 API**。
+已在 2026-11-09 用真实 DeepSeek（`deepseek-chat`）验证一次：解释被校验器接受，token 用量 231 + 74。密钥只放在本机 `.env`（已 gitignore），测试会强制 `EXPLAIN_PROVIDER=mock`，不会调用真实接口。
+
+冒烟检查（不写数据库、不打印密钥）：
+
+```bash
+make model-check
+```
 
 ## 规则与三值判定
 

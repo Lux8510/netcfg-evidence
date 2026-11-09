@@ -57,6 +57,7 @@ class Explanation:
     citations: tuple[Citation, ...]
     model: str = "mock"
     prompt_version: str = PROMPT_VERSION
+    usage: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -211,6 +212,7 @@ def explain_run(db: Session, device_id: str, run_id: str, explainer: Explainer |
             status=ACCEPT if validation.accepted else REJECT, reason=validation.reason,
             text=explanation.text, model=explanation.model, prompt_version=explanation.prompt_version,
             citations=[citation.as_dict() for citation in explanation.citations],
+            usage=explanation.usage,
         )
         try:
             with db.begin_nested():
@@ -242,6 +244,7 @@ def explanation_payload(row) -> dict:
         "model": row.model,
         "prompt_version": row.prompt_version,
         "citations": row.citations,
+        "usage": row.usage,
         "created_at": row.created_at.isoformat(),
     }
 

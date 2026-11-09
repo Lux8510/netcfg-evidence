@@ -404,6 +404,7 @@ function renderExplain(rows, runId) {
     <article class="item">
       <div class="item-head"><code>${esc(row.rule_id)}</code>${badge(row.status, row.status === 'accepted' ? 'ok' : 'error')}<span class="muted small">${esc(row.reason)}</span>${runId ? `<span class="muted small">run ${esc(String(runId).slice(0, 8))}</span>` : ''}</div>
       <p class="pre">${esc(row.text)}</p>
+      ${row.usage ? `<div class="muted small">tokens ${row.usage.prompt_tokens ?? '?'} + ${row.usage.completion_tokens ?? '?'}</div>` : ''}
       <div class="muted small">引用：${row.citations.map((c) => `${esc(c.rule_id)} 第 ${c.lines.map(Number).filter(Number.isInteger).join(',')} 行`).join('；') || '无'} · 模型 ${esc(row.model)}</div>
     </article>`).join('');
 }

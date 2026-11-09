@@ -1,6 +1,6 @@
 PY ?= python3
 
-.PHONY: test e2e concurrency run migrate revision eval cases bundle check review-kit clean
+.PHONY: test e2e concurrency model-check run migrate revision eval cases bundle check review-kit clean
 
 test:
 	$(PY) -m pytest
@@ -10,6 +10,9 @@ e2e:
 
 concurrency:
 	$(PY) -m pytest -m concurrency tests/test_concurrency.py
+
+model-check:
+	$(PY) scripts/check_model.py
 
 run:
 	$(PY) -m uvicorn api.main:app --reload --port 8000

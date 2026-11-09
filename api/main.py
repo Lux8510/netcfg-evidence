@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable, Iterator
 
+from dotenv import load_dotenv
+
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -17,7 +19,10 @@ from engine.db import SessionLocal, init_db
 from engine.models import DriftReport
 
 
-WEB_DIR = Path(__file__).resolve().parents[1] / "web"
+ROOT_DIR = Path(__file__).resolve().parents[1]
+WEB_DIR = ROOT_DIR / "web"
+# .env is git-ignored; it only ever supplies server-side secrets.
+load_dotenv(ROOT_DIR / ".env")
 
 
 class StrictBody(BaseModel):

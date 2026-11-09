@@ -11,3 +11,7 @@ netcfg.db
 *.db
 review-bundles/
 test-results/
+
+.env
+.env.*
+!.env.example

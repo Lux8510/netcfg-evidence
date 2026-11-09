@@ -151,6 +151,7 @@ class Explanation(Base):
     model: Mapped[str] = mapped_column(String(40), nullable=False)
     prompt_version: Mapped[str] = mapped_column(String(40), nullable=False)
     citations: Mapped[list] = mapped_column(JSON, nullable=False)
+    usage: Mapped[dict | None] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
 
     __table_args__ = (

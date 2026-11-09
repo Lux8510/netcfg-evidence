@@ -30,7 +30,7 @@
 | C22 | 页面加载不产生写操作 | W2 审查后 | 加载只读历史，计算需显式点击 | **强制**（前端） | `web/app.js:loadDrift/loadFindings` |
 | C23 | 静态挂载不抢占 API/文档 | README API 节 | 挂载顺序 + 回归测试 | **强制** | `tests/test_review_w2.py::test_docs_and_openapi_stay_available` |
 | C24 | 支持 PostgreSQL | README | 模型层使用 JSON + 部分索引；**未在真实实例验证** | **部分** | 无 PostgreSQL 集成测试 |
-| C26 | 解释层可替换为真实模型 | README | `Explainer` 协议 + OpenAI 兼容适配器 + 环境变量 | **强制**（适配器未对真实 API 验证） | `tests/test_providers.py` |
+| C26 | 解释层可替换为真实模型 | README | `Explainer` 协议 + OpenAI 兼容适配器 + 环境变量；2026-11-09 真实 DeepSeek 调用通过 | **强制（已实测一次）** | `scripts/check_model.py`、`tests/test_providers.py` |
 | C27 | 未配置密钥时不会静默退回 Mock | README | `build_explainer` 抛 409 | **强制** | `tests/test_providers.py::test_build_explainer_defaults_to_mock_and_refuses_missing_key` |
 | C28 | 存在数据库里的旧库也会补上追加式触发器 | README（隐含） | 启动时 `ensure_append_only` 幂等执行 | **强制** | `tests/test_bootstrap.py` |
 | C29 | 切换设备不会残留上一个设备的状态 | README | `refreshDevice` 重置 findings/表单 + E2E 用例 | **强制** | `tests/test_e2e_ui.py::test_switching_device_clears_previous_findings` |
@@ -57,6 +57,8 @@
 | 新增：真实并发不产生 500 | — | **强制** | 独立服务进程 + 8 并发导入 / 基线切换 / 审批竞争 | `tests/test_concurrency.py` |
 | 新增：提示注入不改变判定 | — | **强制（结构层）** | 配置中的指令不改变规则；无引用的模型输出被拒 | `tests/test_providers.py` |
 | 新增：XSS 不执行 | — | **强制** | `<img onerror>` 在设备名与变更单标题中只显示为文本 | `tests/test_e2e_ui.py` |
+| 新增：测试不调用真实模型 | — | **强制** | `tests/conftest.py` 强制 `EXPLAIN_PROVIDER=mock` | 全部测试 |
+| 新增：token 用量可追溯 | — | **强制** | `explanations.usage` 列 + 迁移 2 + 界面展示 | `tests/test_providers.py` |
 | B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
 | UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
 | UI03 解释归属同一 run | — | **强制（已修）** | 解释按最新 run 查询，界面显示 run 标识 |

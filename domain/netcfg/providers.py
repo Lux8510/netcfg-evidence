@@ -112,8 +112,9 @@ class OpenAICompatibleExplainer:
         if response.status_code != 200:
             raise ProviderError("provider_error", f"模型返回 HTTP {response.status_code}，未采用其输出")
 
+        payload = response.json()
         try:
-            content = response.json()["choices"][0]["message"]["content"]
+            content = payload["choices"][0]["message"]["content"]
             data = json.loads(content)
             text = data["text"]
             citations = tuple(
@@ -125,4 +126,6 @@ class OpenAICompatibleExplainer:
 
         if not isinstance(text, str) or not isinstance(citations, tuple):
             raise ProviderError("invalid_response", "模型输出字段类型不符合约定，已丢弃")
-        return Explanation(text=text, citations=citations, model=self.settings.model)
+        usage = payload.get("usage") if isinstance(payload, dict) else None
+        return Explanation(text=text, citations=citations, model=self.settings.model,
+                           usage=usage if isinstance(usage, dict) else None)

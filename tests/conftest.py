@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
+
+# Tests must never call a real model: force the deterministic explainer even when
+# a developer has a real provider configured in .env.
+os.environ["EXPLAIN_PROVIDER"] = "mock"
 
 import pytest
 from fastapi.testclient import TestClient
