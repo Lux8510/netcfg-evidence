@@ -12,7 +12,7 @@ INCLUDE_FILES = (
     "Dockerfile", "docker-compose.yml", ".dockerignore", ".github/workflows/ci.yml",
     "review-feedback/README.md", ".env.example",
 )
-INCLUDE_DIRS = ("api", "domain", "engine", "tests", "evals", "samples", "docs", "tools", "web", "migrations")
+INCLUDE_DIRS = ("api", "domain", "engine", "tests", "evals", "samples", "docs", "tools", "web", "migrations", "scripts")
 EXCLUDE_PARTS = {".venv", ".venv312", "__pycache__", ".pytest_cache", ".git"}
 EXCLUDE_SUFFIXES = {".pyc", ".db", ".sqlite"}
 EXCLUDE_NAMES = {".env", "report.json", "rules-report.json", "explain-report.json", "netcfg.db"}
