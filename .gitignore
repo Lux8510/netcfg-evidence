@@ -6,6 +6,7 @@ __pycache__/
 .DS_Store
 evals/report.json
 evals/rules-report.json
+evals/explain-report.json
 netcfg.db
 *.db
 review-bundles/

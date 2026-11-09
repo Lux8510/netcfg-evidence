@@ -20,10 +20,11 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 测试 **88 项**
+- 测试 **103 项**
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
+- 解释层（Mock）+ 引用校验：解释不能改变判定
 - 覆盖设备 / 版本 / 基线 / 漂移 / 规则 / Findings 的 HTTP API
 
 ## 当前能力
@@ -82,6 +83,9 @@ print(report.as_dict())
 | GET | `/api/change-requests/{id}` | 变更单详情（含创建时的 Finding 快照） |
 | POST | `/api/change-requests/{id}/{submit,approve,reject,apply,cancel}` | 状态流转，必须填真实审批人 |
 | GET | `/api/change-requests/{id}/events` | 追加式审计事件（不可修改） |
+| POST | `/api/devices/{id}/explanations` | 为某次规则执行的 Finding 生成解释 |
+| GET | `/api/devices/{id}/explanations` | 解释列表（含 rejected） |
+| GET | `/api/explanations/{id}` | 单条解释与校验结果 |
 
 数据库默认 `sqlite:///./netcfg.db`，可用 `NETCFG_DATABASE_URL` 指向 PostgreSQL。
 
@@ -101,6 +105,23 @@ draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
 - 所有流转写入 `audit_events`，只追加，没有修改或删除接口
 - `executed_on_device` 恒为 `false`：系统只生成变更单，不下发配置
 - `apply` 只表示"人工已在维护窗口执行"，不验证设备状态
+
+## 解释层：模型只能解释，不能判定
+
+`MockExplainer` 是确定性替身，接口 `Explainer` 可替换成真实模型。每条解释在落库前必须通过校验：
+
+| 校验 | 失败原因码 |
+| --- | --- |
+| 引用的规则必须存在 | `unknown_rule` |
+| 引用的规则必须就是该 Finding 的规则 | `rule_mismatch` |
+| 引用的行必须是该 Finding 的证据行 | `line_not_in_evidence` |
+| 至少有一条引用 | `missing_citation` |
+| 正文必须提到被引用的行号 | `line_not_mentioned` |
+| 正文不能引用未声明的其他规则 | `text_cites_unlinked_rule` |
+| 不能声称"已修改/已下发" | `overclaim` |
+| 长度 10–2000 且无控制字符 | `text_invalid` |
+
+校验不通过的解释**仍会保存**（`status=rejected`），但不会进入展示，也不会影响 Finding。
 
 ## 规则与三值判定
 
@@ -133,13 +154,14 @@ make review-kit   # 打印用 Codex 审查的最短步骤
 ## 评测
 
 ```bash
-make eval    # 漂移 20 例 + 规则判定 15 例
+make eval    # 漂移 20 例 + 规则判定 15 例 + 解释校验 12 例
 ```
 
 当前结果：
 
 - 漂移：**20/20 精确匹配**，precision 1.0000，recall 1.0000
 - 规则判定：**15/15 精确匹配**，逐规则比较 60 个判定（含 satisfied / violated / undetermined / not_applicable）
+- 解释校验：**12/12 精确匹配**，覆盖 8 种拒绝原因
 
 
 
@@ -159,6 +181,7 @@ evals/build_cases.py       生成 20 个漂移案例
 evals/build_rule_cases.py  生成 15 个规则判定案例
 evals/run_eval.py          漂移评测（precision/recall）
 evals/run_rules_eval.py    规则状态评测
+evals/run_explain_eval.py  解释引用校验评测
 samples/frr/               真实实验配置样本（脱敏）
 tests/                     解析、漂移、规则、API、评测与审查回归测试
 DESIGN.md                  完整设计草案

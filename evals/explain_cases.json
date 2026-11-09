@@ -1,0 +1,351 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "E01",
+      "description": "正确解释：引用规则与证据行",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 要求点到点接口显式设置 cost。第 14 行的配置是「no ip ospf cost」，因此判定为 violated。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "id": "E02",
+      "description": "引用不存在的规则 R999",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R999 认为第 14 行有问题。",
+        "citations": [
+          {
+            "rule_id": "R999",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "unknown_rule"
+      }
+    },
+    {
+      "id": "E03",
+      "description": "引用其他规则 R002",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R002 适用于第 14 行。",
+        "citations": [
+          {
+            "rule_id": "R002",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "rule_mismatch"
+      }
+    },
+    {
+      "id": "E04",
+      "description": "引用不在证据里的行号",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 指出第 15 行违反了要求。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              15
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "line_not_in_evidence"
+      }
+    },
+    {
+      "id": "E05",
+      "description": "完全没有引用",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 认为这里配置不符合规范。",
+        "citations": []
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "missing_citation"
+      }
+    },
+    {
+      "id": "E06",
+      "description": "声称已经修改配置",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001：第 14 行有问题，已修改配置并下发。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "overclaim"
+      }
+    },
+    {
+      "id": "E07",
+      "description": "正文包含控制字符",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 第 14 行\u0007有问题",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "text_invalid"
+      }
+    },
+    {
+      "id": "E08",
+      "description": "正文超过 2000 字符",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 第 14 行xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "text_invalid"
+      }
+    },
+    {
+      "id": "E09",
+      "description": "正文没有提到被引用的行号",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 认为这里不符合规范，但没有指出行号。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "line_not_mentioned"
+      }
+    },
+    {
+      "id": "E10",
+      "description": "正文提到未引用的规则",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 与 R004 都要求第 14 行修改。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "text_cites_unlinked_rule"
+      }
+    },
+    {
+      "id": "E11",
+      "description": "两个证据行都被引用",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        },
+        {
+          "kind": "config_line",
+          "line": 13,
+          "text": "ip ospf network point-to-point",
+          "path": "interface.eth2.ospf.network_type"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 第 14 行与第 13 行共同证明该接口缺少 cost。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14,
+              13
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "id": "E12",
+      "description": "引用对象存在但没有任何行号",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 认为第 14 行有问题。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": []
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "missing_citation"
+      }
+    }
+  ]
+}

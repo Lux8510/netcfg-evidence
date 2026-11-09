@@ -132,3 +132,27 @@ class AuditEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
 
     __table_args__ = (Index("ix_audit_entity", "entity_type", "entity_id", "created_at"),)
+
+
+class Explanation(Base):
+    """Model output is stored with its validation result; rejected text is kept for audit."""
+
+    __tablename__ = "explanations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    run_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    finding_id: Mapped[str] = mapped_column(ForeignKey("findings.id", ondelete="CASCADE"), nullable=False, index=True)
+    rule_id: Mapped[str] = mapped_column(String(16), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str] = mapped_column(String(40), nullable=False)
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    model: Mapped[str] = mapped_column(String(40), nullable=False)
+    prompt_version: Mapped[str] = mapped_column(String(40), nullable=False)
+    citations: Mapped[list] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("status IN ('accepted','rejected')", name="ck_explanations_status"),
+        UniqueConstraint("finding_id", "prompt_version", "model", name="uq_explanation_once"),
+    )

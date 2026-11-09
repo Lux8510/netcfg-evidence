@@ -11,10 +11,12 @@ run:
 cases:
 	$(PY) evals/build_cases.py
 	$(PY) evals/build_rule_cases.py
+	$(PY) evals/build_explain_cases.py
 
 eval:
 	$(PY) evals/run_eval.py
 	$(PY) evals/run_rules_eval.py
+	$(PY) evals/run_explain_eval.py
 
 bundle:
 	$(PY) tools/build_review_bundle.py

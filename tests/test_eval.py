@@ -57,3 +57,8 @@ def test_rule_statuses_distinguish_not_applicable_and_undetermined():
 
     broken = statuses(parse_frr_config("hostname x\nrouter ospf 1\n!\n"))
     assert set(broken.values()) == {"undetermined"}
+
+
+def test_explain_eval_suite_passes():
+    from evals.run_explain_eval import main as explain_main
+    assert explain_main() == 0

@@ -45,6 +45,10 @@ class ChangeRequestBody(StrictBody):
     actor: str = Field(min_length=1, max_length=200)
 
 
+class ExplainBody(StrictBody):
+    run_id: str | None = Field(default=None, min_length=36, max_length=36)
+
+
 class TransitionBody(StrictBody):
     actor: str = Field(min_length=1, max_length=80)
     note: str = Field(min_length=1, max_length=1000)
@@ -152,6 +156,26 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     @app.get("/api/versions/{version_id}/lines")
     def version_lines(version_id: str, start: int = 1, end: int = 1, db: Session = Depends(get_db)):
         return ok(service.version_lines(db, version_id, start, end))
+
+    @app.post("/api/devices/{device_id}/explanations", status_code=201)
+    def create_explanations(device_id: str, body: ExplainBody | None = None, db: Session = Depends(get_db)):
+        from domain.netcfg import explain
+        service.get_device_or_404(db, device_id)
+        run_id = body.run_id if body and body.run_id else explain.latest_run_id(db, device_id)
+        if run_id is None:
+            raise service.ServiceError("NO_FINDINGS", "该设备还没有规则检查记录", 409)
+        return ok(explain.explain_run(db, device_id, run_id))
+
+    @app.get("/api/devices/{device_id}/explanations")
+    def list_explanations(device_id: str, run_id: str | None = None, db: Session = Depends(get_db)):
+        from domain.netcfg import explain
+        service.get_device_or_404(db, device_id)
+        return ok([explain.explanation_payload(row) for row in explain.list_explanations(db, device_id, run_id)])
+
+    @app.get("/api/explanations/{explanation_id}")
+    def get_explanation(explanation_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import explain
+        return ok(explain.explanation_payload(explain.get_explanation(db, explanation_id)))
 
     @app.post("/api/devices/{device_id}/change-requests", status_code=201)
     def create_change_request(device_id: str, body: ChangeRequestBody, db: Session = Depends(get_db)):
