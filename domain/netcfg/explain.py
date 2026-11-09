@@ -32,6 +32,15 @@ ACCEPT = "accepted"
 REJECT = "rejected"
 
 
+class ProviderError(Exception):
+    """Raised by a model adapter; the message must never contain credentials."""
+
+    def __init__(self, reason: str, message: str) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.message = message
+
+
 @dataclass(frozen=True)
 class Citation:
     rule_id: str
@@ -183,8 +192,14 @@ def explain_run(db: Session, device_id: str, run_id: str, explainer: Explainer |
             explanation = Explanation(text="规则不存在，无法解释。", citations=())
             validation = Validation(False, "unknown_rule")
         else:
-            explanation = explainer.explain(finding, rule)
-            validation = validate_explanation(explanation, finding, rule, evidence_lines)
+            try:
+                explanation = explainer.explain(finding, rule)
+            except ProviderError as exc:
+                explanation = Explanation(text=f"[模型输出被丢弃] {exc.message}", citations=(),
+                                          model=getattr(explainer, "name", "unknown"))
+                validation = Validation(False, exc.reason)
+            else:
+                validation = validate_explanation(explanation, finding, rule, evidence_lines)
 
         stored = ExplanationRow(
             run_id=run_id, device_id=device_id, finding_id=row.id, rule_id=row.rule_id,

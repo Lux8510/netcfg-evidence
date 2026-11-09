@@ -26,5 +26,8 @@ SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 def init_db(target_engine=None) -> None:
     from . import models  # noqa: F401  (registers tables on Base.metadata)
+    from .bootstrap import ensure_append_only
 
-    Base.metadata.create_all(target_engine or engine)
+    target = target_engine or engine
+    Base.metadata.create_all(target)
+    ensure_append_only(target)

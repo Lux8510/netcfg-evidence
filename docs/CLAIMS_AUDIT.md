@@ -30,6 +30,9 @@
 | C22 | 页面加载不产生写操作 | W2 审查后 | 加载只读历史，计算需显式点击 | **强制**（前端） | `web/app.js:loadDrift/loadFindings` |
 | C23 | 静态挂载不抢占 API/文档 | README API 节 | 挂载顺序 + 回归测试 | **强制** | `tests/test_review_w2.py::test_docs_and_openapi_stay_available` |
 | C24 | 支持 PostgreSQL | README | 模型层使用 JSON + 部分索引；**未在真实实例验证** | **部分** | 无 PostgreSQL 集成测试 |
+| C26 | 解释层可替换为真实模型 | README | `Explainer` 协议 + OpenAI 兼容适配器 + 环境变量 | **强制**（适配器未对真实 API 验证） | `tests/test_providers.py` |
+| C27 | 未配置密钥时不会静默退回 Mock | README | `build_explainer` 抛 409 | **强制** | `tests/test_providers.py::test_build_explainer_defaults_to_mock_and_refuses_missing_key` |
+| C28 | 存在数据库里的旧库也会补上追加式触发器 | README（隐含） | 启动时 `ensure_append_only` 幂等执行 | **强制** | `tests/test_bootstrap.py` |
 | C25 | 评测期望值独立于实现 | README 评测节 | 期望值在生成脚本中手写，运行时不调用被测实现 | **强制**（代码层面） | `evals/build_*.py`、`tests/test_eval.py` |
 
 ## 需要修正或收窄的承诺

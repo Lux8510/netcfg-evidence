@@ -173,7 +173,8 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         run_id = body.run_id if body and body.run_id else explain.latest_run_id(db, device_id)
         if run_id is None:
             raise service.ServiceError("NO_FINDINGS", "该设备还没有规则检查记录", 409)
-        return ok(explain.explain_run(db, device_id, run_id))
+        from domain.netcfg.providers import build_explainer
+        return ok(explain.explain_run(db, device_id, run_id, build_explainer()))
 
     @app.get("/api/devices/{device_id}/explanations")
     def list_explanations(device_id: str, run_id: str | None = None, db: Session = Depends(get_db)):

@@ -8,7 +8,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 INCLUDE_FILES = (
     "README.md", "DESIGN.md", "REVIEW_GUIDE.md", "AGENTS.md", "Makefile",
-    "requirements-dev.txt", "pyproject.toml", "review-feedback/README.md",
+    "requirements-dev.txt", "pyproject.toml", "review-feedback/README.md", ".env.example",
 )
 INCLUDE_DIRS = ("api", "domain", "engine", "tests", "evals", "samples", "docs", "tools", "web")
 EXCLUDE_PARTS = {".venv", ".venv312", "__pycache__", ".pytest_cache", ".git"}

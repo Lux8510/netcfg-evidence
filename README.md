@@ -20,11 +20,11 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 测试 **120 项**
+- 测试 **132 项**
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
-- 解释层（Mock）+ 引用校验：解释不能改变判定
+- 解释层：Mock 或 OpenAI 兼容真实模型 + 引用校验，解释不能改变判定
 - 覆盖设备 / 版本 / 基线 / 漂移 / 规则 / Findings 的 HTTP API
 
 ## 当前能力
@@ -130,9 +130,34 @@ draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
 | 正文提到的行号集合必须与引用集合一致 | `line_mismatch` |
 | 不能声称"已修改/已下发" | `overclaim` |
 | 长度 10–2000 且无控制字符 | `text_invalid` |
+| 模型输出不是约定 JSON | `invalid_response` |
+| 模型请求失败或返回非 200 | `provider_error` |
 
 校验不通过的解释**仍会保存**（`status=rejected`），前端以红色标记展示以便审计，但**不会影响 Finding**。
 引用校验只覆盖"引用结构 + 行号一致性"，不校验文字里的语义新增——这一点在 [承诺自查](docs/CLAIMS_AUDIT.md) 里明确列出。
+
+## 接真实模型
+
+解释层通过一个可替换的 `Explainer` 接口工作。默认 `mock`，不需要任何密钥：
+
+```bash
+# .env（或直接导出环境变量）
+EXPLAIN_PROVIDER=openai          # 或 deepseek，均走 OpenAI 兼容协议
+EXPLAIN_BASE_URL=https://api.deepseek.com/v1
+EXPLAIN_MODEL=deepseek-chat
+EXPLAIN_API_KEY=sk-...           # 也接受 DEEPSEEK_API_KEY / OPENAI_API_KEY
+EXPLAIN_TIMEOUT=20
+```
+
+行为约定：
+
+- 选了真实模型但没有密钥 → 返回 `409 MODEL_NOT_CONFIGURED`，**不会静默退回 Mock 假装成功**
+- 模型输出必须是 `{"text": ..., "citations": [{"rule_id": ..., "lines": [...]}]}`
+- 输出不是合法 JSON、缺字段、HTTP 非 200、网络失败 → 记为 `rejected`（`invalid_response` / `provider_error`），不采用
+- 即使模型输出结构合法，仍要通过与 Mock 相同的引用校验
+- 错误信息与落库文本不包含密钥
+
+模型适配器目前只用进程内 `MockTransport` 测过，**没有调用真实 API**。
 
 ## 规则与三值判定
 

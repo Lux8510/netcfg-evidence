@@ -59,9 +59,14 @@ async function createDevice() {
 }
 
 async function refreshDevice() {
+  // Never let the previous device's findings or change form leak into the new one.
+  state.findings = null;
+  state.changeRequest = null;
+  $('#change-form').classList.add('hidden');
+  renderDrift(null); renderRules(null); renderExplain([]);
   if (!state.deviceId) {
     state.versions = []; state.baseline = null;
-    renderVersions(); renderDrift(null); renderRules(null); renderChanges([]); renderExplain([]);
+    renderVersions(); renderChanges([]);
     $('#baseline-label').textContent = '';
     return;
   }
