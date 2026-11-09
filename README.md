@@ -85,6 +85,15 @@ print(report.as_dict())
 
 每条规则的判定结果是 **violated / satisfied / undetermined**。当配置里存在未解析的 OSPF 相关行时，结果为 `undetermined`，**不会**被当成通过。
 
+## 审查
+
+```bash
+make check    # 检查凭据、绝对路径、失效链接
+make bundle   # 生成可独立审查的 zip（含 MANIFEST 哈希与审查请求）
+```
+
+审查流程见 [REVIEW_GUIDE.md](REVIEW_GUIDE.md)。
+
 ## 评测
 
 ```bash
