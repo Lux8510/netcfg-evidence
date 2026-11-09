@@ -41,3 +41,19 @@ def test_cases_declare_items_for_value_sensitive_examples():
     by_id = {case["id"]: case for case in data["cases"]}
     for case_id in ("D02", "D13", "D16", "D20"):
         assert by_id[case_id]["expected_items"], case_id
+
+
+def test_rule_eval_suite_passes():
+    from evals.run_rules_eval import main as rule_main
+    assert rule_main() == 0
+
+
+def test_rule_statuses_distinguish_not_applicable_and_undetermined():
+    from evals.run_rules_eval import statuses
+    from domain.netcfg.parser import parse_frr_config
+
+    none = statuses(parse_frr_config("hostname x\ninterface e0\n ip address 10.0.0.1/24\n!\n"))
+    assert set(none.values()) == {"not_applicable"}
+
+    broken = statuses(parse_frr_config("hostname x\nrouter ospf 1\n!\n"))
+    assert set(broken.values()) == {"undetermined"}

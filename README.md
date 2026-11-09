@@ -20,7 +20,7 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 测试 **86 项**
+- 测试 **88 项**
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
@@ -133,10 +133,15 @@ make review-kit   # 打印用 Codex 审查的最短步骤
 ## 评测
 
 ```bash
-make eval    # 20 个人工标注的漂移案例
+make eval    # 漂移 20 例 + 规则判定 15 例
 ```
 
-当前结果：**20/20 精确匹配，precision 1.0000，recall 1.0000**。
+当前结果：
+
+- 漂移：**20/20 精确匹配**，precision 1.0000，recall 1.0000
+- 规则判定：**15/15 精确匹配**，逐规则比较 60 个判定（含 satisfied / violated / undetermined / not_applicable）
+
+
 
 期望值由人工写死，不由被测实现生成。部分案例还声明了 `expected_items`（kind、old/new、证据行号），所以把 10→20 写成 20→10 会被判失败；每条漂移还必须带证据行号。
 
@@ -151,7 +156,9 @@ engine/models.py           设备、配置版本、基线、漂移报告
 domain/netcfg/rules.py     4 条确定性规则与三值判定
 api/main.py                FastAPI 路由
 evals/build_cases.py       生成 20 个漂移案例
-evals/run_eval.py          评测脚本（precision/recall）
+evals/build_rule_cases.py  生成 15 个规则判定案例
+evals/run_eval.py          漂移评测（precision/recall）
+evals/run_rules_eval.py    规则状态评测
 samples/frr/               真实实验配置样本（脱敏）
 tests/                     解析、漂移、规则、API、评测与审查回归测试
 DESIGN.md                  完整设计草案

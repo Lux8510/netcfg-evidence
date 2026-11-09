@@ -13,7 +13,7 @@ INCLUDE_FILES = (
 INCLUDE_DIRS = ("api", "domain", "engine", "tests", "evals", "samples", "docs", "tools")
 EXCLUDE_PARTS = {".venv", ".venv312", "__pycache__", ".pytest_cache", ".git"}
 EXCLUDE_SUFFIXES = {".pyc", ".db", ".sqlite"}
-EXCLUDE_NAMES = {".env", "report.json", "netcfg.db"}
+EXCLUDE_NAMES = {".env", "report.json", "rules-report.json", "netcfg.db"}
 
 
 def files() -> list[Path]:
