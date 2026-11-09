@@ -12,10 +12,11 @@ idempotency key returns the stored result instead of writing twice.
 from __future__ import annotations
 
 import re
+import unicodedata
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from engine.models import AuditEvent, ChangeRequest, Device, Finding, uid
@@ -42,7 +43,8 @@ def _now() -> datetime:
 
 
 def validate_actor(actor: str) -> str:
-    actor = (actor or "").strip()
+    # NFKC turns full-width letters into ASCII, so ＡＧＥＮＴ cannot bypass the reserved list.
+    actor = unicodedata.normalize("NFKC", actor or "").strip()
     if not ACTOR_RE.match(actor):
         raise ServiceError("INVALID_ACTOR", "必须填写真实审批人（2–80 个字符）", 422)
     if actor.casefold() in FORBIDDEN_ACTORS:
@@ -143,22 +145,30 @@ def transition(db: Session, request_id: str, action: str, *, actor: str, note: s
                 raise ServiceError("IDEMPOTENCY_CONFLICT", "该幂等键已绑定其他操作", 409)
             return get_change_request(db, request_id)
 
-    request = get_change_request(db, request_id)
     source, target = TRANSITIONS[action]
-    if request.status != source:
-        raise ServiceError("INVALID_TRANSITION",
-                           f"当前状态 {request.status} 不能执行 {action}（需要 {source}）", 409)
-
-    request.status = target
-    request.updated_at = _now()
+    now = _now()
+    values: dict[str, Any] = {"status": target, "updated_at": now}
     if action == "approve":
-        request.approved_by = actor
-        request.approved_at = _now()
+        values.update(approved_by=actor, approved_at=now)
     if action == "reject":
-        request.rejection_reason = note
+        values["rejection_reason"] = note
     if action == "apply":
-        request.applied_at = _now()
+        values["applied_at"] = now
 
+    # Compare-and-set: the database decides who wins, not the object we read earlier.
+    result = db.execute(
+        update(ChangeRequest)
+        .where(ChangeRequest.id == request_id, ChangeRequest.status == source)
+        .values(**values)
+    )
+    if result.rowcount != 1:
+        db.expire_all()
+        current = get_change_request(db, request_id)
+        raise ServiceError("INVALID_TRANSITION",
+                           f"当前状态 {current.status} 不能执行 {action}（需要 {source}）", 409)
+
+    db.expire_all()
+    request = get_change_request(db, request_id)
     _audit(db, request, action, actor, note, idempotency_key)
     return request
 

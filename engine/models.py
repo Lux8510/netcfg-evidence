@@ -5,8 +5,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import (JSON, Boolean, CheckConstraint, DateTime, ForeignKey, Index, Integer, String, Text,
-                        UniqueConstraint, text)
+from sqlalchemy import (JSON, Boolean, CheckConstraint, DDL, DateTime, ForeignKey, Index, Integer, String, Text,
+                        UniqueConstraint, event, text)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .db import Base
@@ -67,6 +67,7 @@ class DriftReport(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
     device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
     baseline_id: Mapped[str] = mapped_column(ForeignKey("baselines.id", ondelete="CASCADE"), nullable=False)
+    baseline_version_id: Mapped[str] = mapped_column(ForeignKey("config_versions.id", ondelete="CASCADE"), nullable=False)
     current_version_id: Mapped[str] = mapped_column(ForeignKey("config_versions.id", ondelete="CASCADE"), nullable=False)
     identical: Mapped[bool] = mapped_column(Boolean, nullable=False)
     summary: Mapped[dict] = mapped_column(JSON, nullable=False)
@@ -156,3 +157,43 @@ class Explanation(Base):
         CheckConstraint("status IN ('accepted','rejected')", name="ck_explanations_status"),
         UniqueConstraint("finding_id", "prompt_version", "model", name="uq_explanation_once"),
     )
+
+
+class RuleRun(Base):
+    """One rule-check execution, including runs with zero findings."""
+
+    __tablename__ = "rule_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    config_version_id: Mapped[str] = mapped_column(ForeignKey("config_versions.id", ondelete="CASCADE"), nullable=False)
+    counts: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+
+# --- append-only audit: enforce in the database, not just in the HTTP layer ---
+event.listen(
+    AuditEvent.__table__, "after_create",
+    DDL("""CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events
+           BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END;""").execute_if(dialect="sqlite"),
+)
+event.listen(
+    AuditEvent.__table__, "after_create",
+    DDL("""CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
+           BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END;""").execute_if(dialect="sqlite"),
+)
+event.listen(
+    AuditEvent.__table__, "after_create",
+    DDL("""CREATE OR REPLACE FUNCTION prevent_audit_mutation() RETURNS trigger AS $$
+           BEGIN RAISE EXCEPTION 'audit_events is append-only'; END; $$ LANGUAGE plpgsql;""").execute_if(dialect="postgresql"),
+)
+event.listen(
+    AuditEvent.__table__, "after_create",
+    DDL("""CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events
+           FOR EACH ROW EXECUTE FUNCTION prevent_audit_mutation();""").execute_if(dialect="postgresql"),
+)
+event.listen(
+    AuditEvent.__table__, "after_create",
+    DDL("""CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
+           FOR EACH ROW EXECUTE FUNCTION prevent_audit_mutation();""").execute_if(dialect="postgresql"),
+)

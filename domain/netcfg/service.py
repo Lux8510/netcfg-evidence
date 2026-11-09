@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from engine.models import Baseline, ConfigVersion, Device, DriftReport, Finding
+from engine.models import Baseline, ConfigVersion, Device, DriftReport, Finding, RuleRun
 from engine.models import uid
 
 from .drift import diff_configs
@@ -185,6 +185,7 @@ def compute_drift(db: Session, device_id: str, current_version_id: str | None = 
     stored = DriftReport(
         device_id=device_id,
         baseline_id=baseline.id,
+        baseline_version_id=base_version.id,
         current_version_id=current.id,
         identical=report.identical,
         summary=summary,
@@ -227,6 +228,7 @@ def drift_payload(report: DriftReport) -> dict[str, Any]:
         "id": report.id,
         "device_id": report.device_id,
         "baseline_id": report.baseline_id,
+        "baseline_version_id": report.baseline_version_id,
         "current_version_id": report.current_version_id,
         "identical": report.identical,
         "summary": report.summary,
@@ -248,6 +250,14 @@ def run_rules_check(db: Session, device_id: str, version_id: str | None = None) 
     result = rules_module.run_rules(parsed)
     digest_matches = parsed.canonical_sha256 == version.canonical_sha256
     run_id = uid()
+    counts = {
+        "rules_checked": result["rules_checked"],
+        "rules_satisfied": result["rules_satisfied"],
+        "rules_not_applicable": result.get("rules_not_applicable", 0),
+        "findings_violated": result["findings_violated"],
+        "findings_undetermined": result["findings_undetermined"],
+    }
+    db.add(RuleRun(id=run_id, device_id=device_id, config_version_id=version.id, counts=counts))
     stored = []
     for finding in result["findings"]:
         row = Finding(
@@ -265,19 +275,31 @@ def run_rules_check(db: Session, device_id: str, version_id: str | None = None) 
         "digest": {"sha256": version.raw_sha256, "canonical_sha256": version.canonical_sha256,
                    "recomputed_canonical_sha256": parsed.canonical_sha256,
                    "parser_version": parsed_version_of(version), "matches": digest_matches},
-        "counts": {
-            "rules_checked": result["rules_checked"],
-            "rules_satisfied": result["rules_satisfied"],
-            "rules_not_applicable": result.get("rules_not_applicable", 0),
-            "findings_violated": result["findings_violated"],
-            "findings_undetermined": result["findings_undetermined"],
-        },
+        "counts": counts,
         "findings": [finding_payload(row) for row in stored],
     }
 
 
 def parsed_version_of(version: ConfigVersion) -> str:
     return getattr(version, "parser_version", None) or "unknown"
+
+
+def list_rule_runs(db: Session, device_id: str, limit: int = 20) -> list[RuleRun]:
+    _device(db, device_id)
+    return list(db.scalars(
+        select(RuleRun).where(RuleRun.device_id == device_id)
+        .order_by(RuleRun.created_at.desc(), RuleRun.id.desc()).limit(limit)
+    ))
+
+
+def rule_run_payload(row: RuleRun) -> dict[str, Any]:
+    return {
+        "run_id": row.id,
+        "device_id": row.device_id,
+        "config_version_id": row.config_version_id,
+        "counts": row.counts,
+        "created_at": row.created_at.isoformat(),
+    }
 
 
 def finding_payload(row: Finding) -> dict[str, Any]:

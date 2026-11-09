@@ -20,7 +20,7 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 测试 **104 项**
+- 测试 **116 项**
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
@@ -82,6 +82,7 @@ print(report.as_dict())
 | GET | `/api/rules` | 规则清单（ID、说明、来源、级别） |
 | POST | `/api/devices/{id}/rules/check` | 对某版本跑规则，落库 Findings |
 | GET | `/api/devices/{id}/findings` | 查询 Findings（可按 `run_id` 过滤） |
+| GET | `/api/devices/{id}/rules/runs` | 每次规则执行的摘要（含零 Finding 的运行） |
 | GET | `/api/versions/{id}/lines?start=&end=` | 取原始配置行作为证据 |
 | POST | `/api/devices/{id}/change-requests` | 由 violated Finding 生成变更单 |
 | GET | `/api/devices/{id}/change-requests` | 变更单列表 |
@@ -93,6 +94,7 @@ print(report.as_dict())
 | GET | `/api/explanations/{id}` | 单条解释与校验结果 |
 
 数据库默认 `sqlite:///./netcfg.db`，可用 `NETCFG_DATABASE_URL` 指向 PostgreSQL。
+当前用 `Base.metadata.create_all` 建表，没有迁移工具；本地结构变更时删除 `netcfg.db` 重建即可（单用户开发阶段）。
 
 ## 变更单与人工审批
 
@@ -107,7 +109,9 @@ draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
 - 只能由 **violated** 的 Finding 生成；`undetermined` 不能变成变更单
 - 变更单会保存创建时的 Finding 快照，之后 Finding 变化不影响已提交内容
 - 每次流转必须填写**真实审批人**，`system` / `agent` / `bot` 一律拒绝
-- 所有流转写入 `audit_events`，只追加，没有修改或删除接口
+- 所有流转写入 `audit_events`：HTTP 层没有修改接口，数据库层用触发器拒绝 UPDATE/DELETE
+- 审批人是 Compare-And-Set 更新：两个相反的审批并发时只有一个成功，失败方返回 409 且不写事件
+- 审批人名称先做 Unicode NFKC 规范化，全角 `ＡＧＥＮＴ` 也会被拒绝
 - `executed_on_device` 恒为 `false`：系统只生成变更单，不下发配置
 - `apply` 只表示"人工已在维护窗口执行"，不验证设备状态
 
@@ -123,6 +127,7 @@ draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
 | 至少有一条引用 | `missing_citation` |
 | 正文必须提到被引用的行号 | `line_not_mentioned` |
 | 正文不能引用未声明的其他规则 | `text_cites_unlinked_rule` |
+| 正文提到的行号集合必须与引用集合一致 | `line_mismatch` |
 | 不能声称"已修改/已下发" | `overclaim` |
 | 长度 10–2000 且无控制字符 | `text_invalid` |
 
@@ -159,14 +164,14 @@ make review-kit   # 打印用 Codex 审查的最短步骤
 ## 评测
 
 ```bash
-make eval    # 漂移 20 例 + 规则判定 15 例 + 解释校验 12 例
+make eval    # 漂移 20 例 + 规则判定 15 例 + 解释校验 15 例
 ```
 
 当前结果：
 
 - 漂移：**20/20 精确匹配**，precision 1.0000，recall 1.0000
 - 规则判定：**15/15 精确匹配**，逐规则比较 60 个判定（含 satisfied / violated / undetermined / not_applicable）
-- 解释校验：**12/12 精确匹配**，覆盖 8 种拒绝原因
+- 解释校验：**15/15 精确匹配**，覆盖 9 种拒绝原因
 
 
 

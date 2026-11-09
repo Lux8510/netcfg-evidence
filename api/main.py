@@ -154,6 +154,10 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         version_id = body.current_version_id if body else None
         return ok(service.run_rules_check(db, device_id, version_id))
 
+    @app.get("/api/devices/{device_id}/rules/runs")
+    def list_rule_runs(device_id: str, db: Session = Depends(get_db)):
+        return ok([service.rule_run_payload(row) for row in service.list_rule_runs(db, device_id)])
+
     @app.get("/api/devices/{device_id}/findings")
     def list_findings(device_id: str, run_id: str | None = None, db: Session = Depends(get_db)):
         return ok([service.finding_payload(row) for row in service.list_findings(db, device_id, run_id)])

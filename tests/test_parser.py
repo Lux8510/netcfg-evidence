@@ -67,11 +67,14 @@ def test_unknown_top_level_line_is_recorded():
     assert [(line.number, line.text) for line in parsed.unparsed] == [(2, "router bgp 65000")]
 
 
-def test_duplicate_interface_is_reported():
-    text = "interface eth1\n ip address 10.0.0.1/30\n!\ninterface eth1\n ip address 10.0.0.2/30\n!\n"
+def test_duplicate_interface_blocks_are_merged_in_order():
+    text = ("interface eth1\n ip address 10.0.0.1/30\n ip ospf cost 10\n!\n"
+            "interface eth1\n ip address 10.0.0.2/30\n no ip ospf cost\n!\n")
     parsed = parse_frr_config(text, "dup.conf")
     assert len(parsed.interfaces) == 1
-    assert [(line.number, line.text) for line in parsed.unparsed] == [(4, "interface eth1")]
+    assert parsed.interfaces["eth1"].addresses == ["10.0.0.1/30", "10.0.0.2/30"]
+    assert parsed.interfaces["eth1"].ospf.cost is None
+    assert parsed.unparsed == []
 
 
 def test_raw_hash_changes_but_canonical_hash_is_stable():

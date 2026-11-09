@@ -26,6 +26,7 @@ MAX_TEXT = 2000
 CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 OVERCLAIM_RE = re.compile(r"(已修改|已执行|已修复|已经变更|已下发|已完成变更)")
 RULE_ID_RE = re.compile(r"\bR(\d{3})\b")
+LINE_LIST_RE = re.compile(r"第\s*(\d+(?:\s*[、,，和及与]\s*\d+)*)\s*行")
 
 ACCEPT = "accepted"
 REJECT = "rejected"
@@ -125,10 +126,15 @@ def validate_explanation(explanation: Explanation, finding: RuleFinding, rule: R
         if any(line not in allowed for line in citation.lines):
             return Validation(False, "line_not_in_evidence")
 
-    mentioned = {int(number) for number in re.findall(r"第\s*(\d+)\s*行", text)}
+    mentioned: set[int] = set()
+    for group in LINE_LIST_RE.findall(text):
+        mentioned.update(int(number) for number in re.findall(r"\d+", group))
     cited = {line for citation in explanation.citations for line in citation.lines}
-    if not (mentioned & cited):
+    if not mentioned:
         return Validation(False, "line_not_mentioned")
+    if mentioned != cited:
+        # An extra line in prose is still a claim: it must match the structured citations.
+        return Validation(False, "line_mismatch")
 
     for match in RULE_ID_RE.finditer(text):
         if f"R{match.group(1)}" not in {citation.rule_id for citation in explanation.citations}:
@@ -221,10 +227,11 @@ def explanation_payload(row) -> dict:
 
 
 def latest_run_id(db: Session, device_id: str) -> str | None:
-    from engine.models import Finding as FindingRow
+    """Use the run table, so a run with zero findings still counts as the latest."""
+    from engine.models import RuleRun
     return db.scalar(
-        select(FindingRow.run_id).where(FindingRow.device_id == device_id)
-        .order_by(FindingRow.created_at.desc(), FindingRow.run_id.desc()).limit(1)
+        select(RuleRun.id).where(RuleRun.device_id == device_id)
+        .order_by(RuleRun.created_at.desc(), RuleRun.id.desc()).limit(1)
     )
 
 

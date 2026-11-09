@@ -205,9 +205,9 @@ def parse_frr_config(text: str, source_name: str = "config") -> ParsedConfig:
             if block == "interface" and current_interface is not None:
                 current_interface.end_line = index - 1
             if name in interfaces:
-                unparsed.append(SourceLine(index, stripped))
-                block = "ignored"
-                current_interface = None
+                # Re-entrant block: apply its commands in order to the same interface.
+                current_interface = interfaces[name]
+                block = "interface"
                 continue
             current_interface = Interface(name=name, start_line=index)
             interfaces[name] = current_interface
@@ -216,8 +216,7 @@ def parse_frr_config(text: str, source_name: str = "config") -> ParsedConfig:
 
         if ROUTER_OSPF_RE.match(stripped):
             if ospf is not None:
-                unparsed.append(SourceLine(index, stripped))
-                block = "ignored"
+                block = "ospf"
                 continue
             ospf = OspfProcess(start_line=index)
             block = "ospf"

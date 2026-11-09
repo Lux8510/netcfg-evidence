@@ -53,6 +53,14 @@ CASES = [
          [{"rule_id": "R001", "lines": [14, 13]}], True, "ok", EVIDENCE_TWO),
     case("E12", "引用对象存在但没有任何行号",
          "规则 R001 认为第 14 行有问题。", [{"rule_id": "R001", "lines": []}], False, "missing_citation"),
+    case("E13", "正文额外提到一个未被引用的行号",
+         "规则 R001 指向第 14 行，另见第 8 行。", [{"rule_id": "R001", "lines": [14]}], False, "line_mismatch"),
+    case("E14", "顿号列表写全两个证据行",
+         "规则 R001 第 14、13 行共同证明该接口缺少 cost。",
+         [{"rule_id": "R001", "lines": [14, 13]}], True, "ok", EVIDENCE_TWO),
+    case("E15", "正文行号与引用集合不一致（少一个）",
+         "规则 R001 第 14 行有问题。", [{"rule_id": "R001", "lines": [14, 13]}], False, "line_mismatch",
+         EVIDENCE_TWO),
 ]
 
 

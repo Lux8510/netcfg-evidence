@@ -44,6 +44,48 @@
       "current": "frr defaults traditional\nhostname r1\nlog stdout\nservice integrated-vtysh-config\n!\ninterface eth1\n description r1-to-client\n ip address 10.101.0.1/30\n!\ninterface eth2\n description r1-to-r2-primary\n ip address 10.12.0.1/30\n ip ospf network point-to-point\n ip ospf cost 10\n!\ninterface eth3\n description r1-to-r3-backup\n ip address 10.13.0.1/30\n ip ospf network point-to-point\n ip ospf cost 50\n!\ninterface lo\n ip address 10.255.1.1/32\n!\nrouter ospf\n ospf router-id 10.255.1.1\n network 10.101.0.0/30 area 0.0.0.0\n network 10.12.0.0/30 area 0.0.0.1\n network 10.13.0.0/30 area 0.0.0.0\n network 10.255.1.1/32 area 0.0.0.0\n passive-interface eth1\n passive-interface lo\n!\nline vty\n!\n",
       "expected_paths": [
         "ospf.networks"
+      ],
+      "expected_items": [
+        {
+          "path": "ospf.networks",
+          "kind": "changed",
+          "old": [
+            {
+              "prefix": "10.101.0.0/30",
+              "area": "0.0.0.0"
+            },
+            {
+              "prefix": "10.12.0.0/30",
+              "area": "0.0.0.0"
+            },
+            {
+              "prefix": "10.13.0.0/30",
+              "area": "0.0.0.0"
+            },
+            {
+              "prefix": "10.255.1.1/32",
+              "area": "0.0.0.0"
+            }
+          ],
+          "new": [
+            {
+              "prefix": "10.101.0.0/30",
+              "area": "0.0.0.0"
+            },
+            {
+              "prefix": "10.12.0.0/30",
+              "area": "0.0.0.1"
+            },
+            {
+              "prefix": "10.13.0.0/30",
+              "area": "0.0.0.0"
+            },
+            {
+              "prefix": "10.255.1.1/32",
+              "area": "0.0.0.0"
+            }
+          ]
+        }
       ]
     },
     {

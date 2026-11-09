@@ -346,6 +346,107 @@
         "accepted": false,
         "reason": "missing_citation"
       }
+    },
+    {
+      "id": "E13",
+      "description": "正文额外提到一个未被引用的行号",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 指向第 14 行，另见第 8 行。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "line_mismatch"
+      }
+    },
+    {
+      "id": "E14",
+      "description": "顿号列表写全两个证据行",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        },
+        {
+          "kind": "config_line",
+          "line": 13,
+          "text": "ip ospf network point-to-point",
+          "path": "interface.eth2.ospf.network_type"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 第 14、13 行共同证明该接口缺少 cost。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14,
+              13
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "reason": "ok"
+      }
+    },
+    {
+      "id": "E15",
+      "description": "正文行号与引用集合不一致（少一个）",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        },
+        {
+          "kind": "config_line",
+          "line": 13,
+          "text": "ip ospf network point-to-point",
+          "path": "interface.eth2.ospf.network_type"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 第 14 行有问题。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14,
+              13
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "line_mismatch"
+      }
     }
   ]
 }

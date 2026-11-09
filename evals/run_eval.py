@@ -51,6 +51,8 @@ def main() -> int:
 
     true_positive = false_positive = false_negative = 0
     exact = 0
+    item_checks = 0
+    item_failures = 0
     rows = []
 
     for case in data["cases"]:
@@ -64,8 +66,10 @@ def main() -> int:
         true_positive += tp
         false_positive += fp
         false_negative += fn
-        item_problems = check_items({item["path"]: item for item in report.as_dict()["items"]},
-                                    case.get("expected_items", []))
+        expected_items = case.get("expected_items", [])
+        item_checks += len(expected_items)
+        item_problems = check_items({item["path"]: item for item in report.as_dict()["items"]}, expected_items)
+        item_failures += len(item_problems)
         missing_evidence = [item["path"] for item in report.as_dict()["items"]
                             if not item["old_lines"] and not item["new_lines"]]
         passed = detected == expected and not item_problems and not missing_evidence
@@ -86,6 +90,8 @@ def main() -> int:
         "exact_match_rate": round(exact / total, 4) if total else 0.0,
         "precision": round(precision, 4),
         "recall": round(recall, 4),
+        "item_checks": item_checks,
+        "item_failures": item_failures,
         "true_positive": true_positive,
         "false_positive": false_positive,
         "false_negative": false_negative,
@@ -104,6 +110,7 @@ def main() -> int:
             if row["missing_evidence"]:
                 print(f"       missing evidence lines={row['missing_evidence']}")
     print(f"\nCases: {exact}/{total} exact match; precision={precision:.4f}; recall={recall:.4f}")
+    print(f"Declared item checks: {item_checks}, failures: {item_failures}")
     print(f"Report: {REPORT}")
     return 0 if exact == total else 1
 

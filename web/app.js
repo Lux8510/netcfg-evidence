@@ -136,10 +136,9 @@ async function importConfig(event) {
 async function loadDrift() {
   if (!state.deviceId) return renderDrift(null);
   const rows = await api(`/devices/${state.deviceId}/drift`);
+  // Read-only on load. Computing a report is an explicit user action.
   if (rows.length) { renderDrift(rows[0]); return; }
-  const hasHistory = state.baseline && state.versions.length > 1;
-  if (hasHistory) { await computeDrift(); return; }
-  renderDrift(null);
+  renderDrift(null, state.baseline ? '还没有漂移报告，点击「与基线比对」生成。' : null);
 }
 
 async function computeDrift() {
@@ -150,9 +149,9 @@ async function computeDrift() {
   } catch (error) { status(error.message, 'error'); }
 }
 
-function renderDrift(report) {
+function renderDrift(report, note) {
   const host = $('#drift-result');
-  if (!report) { host.innerHTML = ''; return; }
+  if (!report) { host.innerHTML = note ? `<p class="muted">${esc(note)}</p>` : ''; return; }
   const summary = report.summary;
   host.innerHTML = `
     <div class="cards">
@@ -170,8 +169,8 @@ function renderDrift(report) {
           <div><span class="muted">当前</span><pre>${esc(JSON.stringify(item.new, null, 1))}</pre></div>
         </div>
         <div class="row gap">
-          ${item.old_lines.length ? `<button class="btn ghost small" data-v="${esc(report.baseline)}" data-from="${item.old_lines[0]}" data-to="${item.old_lines[item.old_lines.length - 1]}">基线第 ${item.old_lines.join(',')} 行</button>` : ''}
-          ${item.new_lines.length ? `<button class="btn ghost small" data-v="${esc(report.current)}" data-from="${item.new_lines[0]}" data-to="${item.new_lines[item.new_lines.length - 1]}">当前第 ${item.new_lines.join(',')} 行</button>` : ''}
+          ${item.old_lines.length ? `<button class="btn ghost small" data-v="${esc(report.baseline_version_id)}" data-from="${item.old_lines[0]}" data-to="${item.old_lines[item.old_lines.length - 1]}">基线第 ${item.old_lines.join(',')} 行</button>` : ''}
+          ${item.new_lines.length ? `<button class="btn ghost small" data-v="${esc(report.current_version_id)}" data-from="${item.new_lines[0]}" data-to="${item.new_lines[item.new_lines.length - 1]}">当前第 ${item.new_lines.join(',')} 行</button>` : ''}
         </div>
       </article>`).join('')}</div>`;
   host.querySelectorAll('[data-v]').forEach((button) => {
@@ -182,18 +181,14 @@ function renderDrift(report) {
 // ---------- rules ----------
 async function loadFindings() {
   if (!state.deviceId) return renderRules(null);
-  const rows = await api(`/devices/${state.deviceId}/findings`);
-  if (!rows.length) { renderRules(null); return; }
-  const killed = new Set(rows.map((row) => row.rule_id));
+  const runs = await api(`/devices/${state.deviceId}/rules/runs`);
+  if (!runs.length) { renderRules(null); return; }
+  const latest = runs[0];
+  const rows = await api(`/devices/${state.deviceId}/findings?run_id=${encodeURIComponent(latest.run_id)}`);
   renderRules({
     saved: true,
-    config_version_id: rows[0].config_version_id,
-    counts: {
-      rules_checked: 4, rules_satisfied: Math.max(0, 4 - killed.size),
-      findings_violated: rows.filter((row) => row.status === 'violated').length,
-      findings_undetermined: rows.filter((row) => row.status === 'undetermined').length,
-      rules_not_applicable: 0,
-    },
+    config_version_id: latest.config_version_id,
+    counts: latest.counts,
     digest: { parser_version: 'saved', matches: true },
     findings: rows,
   });
@@ -229,7 +224,7 @@ function renderRules(result) {
           <div class="evidence">
             <span class="muted small">第 ${ev.line} 行</span>
             <code>${esc(ev.text)}</code>
-            <button class="btn ghost small" data-v="${esc(result.config_version_id)}" data-from="${ev.line}" data-to="${ev.line}">看原文</button>
+            <button class="btn ghost small" data-v="${esc(finding.config_version_id || result.config_version_id)}" data-from="${ev.line}" data-to="${ev.line}">看原文</button>
           </div>`).join('')}
         ${finding.status === 'violated' && !finding.rule_id.startsWith('__')
           ? `<button class="btn ghost small" data-change="${esc(finding.id)}">生成变更单</button>` : ''}
@@ -358,7 +353,7 @@ function renderExplain(rows) {
     <article class="item">
       <div class="item-head"><code>${esc(row.rule_id)}</code>${badge(row.status, row.status === 'accepted' ? 'ok' : 'error')}<span class="muted small">${esc(row.reason)}</span></div>
       <p class="pre">${esc(row.text)}</p>
-      <div class="muted small">引用：${row.citations.map((c) => `${esc(c.rule_id)} 第 ${c.lines.join(',')} 行`).join('；') || '无'} · 模型 ${esc(row.model)}</div>
+      <div class="muted small">引用：${row.citations.map((c) => `${esc(c.rule_id)} 第 ${c.lines.map(Number).filter(Number.isInteger).join(',')} 行`).join('；') || '无'} · 模型 ${esc(row.model)}</div>
     </article>`).join('');
 }
 

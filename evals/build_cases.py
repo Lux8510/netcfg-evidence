@@ -38,7 +38,16 @@ case("D03", "互联接口删除 cost",
      replace(BASELINE, " ip ospf cost 10\n", ""), ["interface.eth2.ospf.cost"])
 case("D04", "单条 network 的 area 变更",
      replace(BASELINE, "network 10.12.0.0/30 area 0.0.0.0", "network 10.12.0.0/30 area 0.0.0.1"),
-     ["ospf.networks"])
+     ["ospf.networks"],
+     [{"path": "ospf.networks", "kind": "changed",
+       "old": [{"prefix": "10.101.0.0/30", "area": "0.0.0.0"},
+               {"prefix": "10.12.0.0/30", "area": "0.0.0.0"},
+               {"prefix": "10.13.0.0/30", "area": "0.0.0.0"},
+               {"prefix": "10.255.1.1/32", "area": "0.0.0.0"}],
+       "new": [{"prefix": "10.101.0.0/30", "area": "0.0.0.0"},
+               {"prefix": "10.12.0.0/30", "area": "0.0.0.1"},
+               {"prefix": "10.13.0.0/30", "area": "0.0.0.0"},
+               {"prefix": "10.255.1.1/32", "area": "0.0.0.0"}]}])
 case("D05", "删除一条 network 宣告",
      replace(BASELINE, " network 10.13.0.0/30 area 0.0.0.0\n", ""), ["ospf.networks"])
 case("D06", "新增一条 network 宣告",
