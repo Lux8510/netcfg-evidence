@@ -10,3 +10,4 @@ evals/explain-report.json
 netcfg.db
 *.db
 review-bundles/
+test-results/

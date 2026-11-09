@@ -1,0 +1,31 @@
+name: offline-and-browser
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: Unit and API tests
+        run: python -m pytest
+      - name: Drift evaluation
+        run: python evals/run_eval.py
+      - name: Rule evaluation
+        run: python evals/run_rules_eval.py
+      - name: Explanation validation evaluation
+        run: python evals/run_explain_eval.py
+      - name: Publication check
+        run: python tools/check_publication.py
+      - name: Browser end-to-end (skips if Chrome is unavailable)
+        run: python -m pytest -m e2e tests/test_e2e_ui.py

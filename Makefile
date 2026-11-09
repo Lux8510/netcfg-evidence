@@ -1,9 +1,12 @@
 PY ?= python3
 
-.PHONY: test run eval cases bundle check review-kit clean
+.PHONY: test e2e run eval cases bundle check review-kit clean
 
 test:
 	$(PY) -m pytest
+
+e2e:
+	$(PY) -m pytest -m e2e tests/test_e2e_ui.py
 
 run:
 	$(PY) -m uvicorn api.main:app --reload --port 8000

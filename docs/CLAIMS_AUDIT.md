@@ -33,6 +33,8 @@
 | C26 | 解释层可替换为真实模型 | README | `Explainer` 协议 + OpenAI 兼容适配器 + 环境变量 | **强制**（适配器未对真实 API 验证） | `tests/test_providers.py` |
 | C27 | 未配置密钥时不会静默退回 Mock | README | `build_explainer` 抛 409 | **强制** | `tests/test_providers.py::test_build_explainer_defaults_to_mock_and_refuses_missing_key` |
 | C28 | 存在数据库里的旧库也会补上追加式触发器 | README（隐含） | 启动时 `ensure_append_only` 幂等执行 | **强制** | `tests/test_bootstrap.py` |
+| C29 | 切换设备不会残留上一个设备的状态 | README | `refreshDevice` 重置 findings/表单 + E2E 用例 | **强制** | `tests/test_e2e_ui.py::test_switching_device_clears_previous_findings` |
+| C30 | 两端证据按钮分别打开对应版本原文 | README | 漂移响应含 `baseline_version_id` + E2E 断言 | **强制** | `tests/test_e2e_ui.py::test_import_set_baseline_and_inspect_drift_evidence` |
 | C25 | 评测期望值独立于实现 | README 评测节 | 期望值在生成脚本中手写，运行时不调用被测实现 | **强制**（代码层面） | `evals/build_*.py`、`tests/test_eval.py` |
 
 ## 需要修正或收窄的承诺

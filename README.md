@@ -20,7 +20,8 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 测试 **132 项**
+- 单元/接口测试 **132 项**
+- 浏览器端到端 **4 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
@@ -176,6 +177,21 @@ EXPLAIN_TIMEOUT=20
 - 声明了 OSPF 但进程块无法解析 → 全部 `undetermined`
 - 完全没有 OSPF → `not_applicable`，不算通过也不算违规
 
+## 浏览器端到端
+
+```bash
+make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动跳过
+```
+
+4 条真实浏览器用例：
+
+1. 导入 → 设基线 → 比对 → 两端证据按钮分别打开对应版本的原文
+2. 规则违规 → 生成变更单 → 提交 → 批准 → 审计事件
+3. 切换设备后，上一个设备的 Finding 与未提交表单必须清空
+4. 生成解释后，列表显示规则 ID 与引用
+
+单元测试默认排除 `e2e`（`pyproject.toml` 的 `addopts`），所以 `pytest` 仍然是秒级；`make e2e` 单独跑浏览器用例。
+
 ## 审查
 
 ```bash
@@ -225,6 +241,7 @@ evals/run_rules_eval.py    规则状态评测
 evals/run_explain_eval.py  解释引用校验评测
 samples/frr/               真实实验配置样本（脱敏）
 tests/                     解析、漂移、规则、API、评测与审查回归测试
+tests/test_e2e_ui.py       浏览器端到端（真实服务进程 + Chrome）
 DESIGN.md                  完整设计草案
 docs/CLAIMS_AUDIT.md      承诺与机制对照表
 docs/INTERVIEW_NOTES.md    面试知识点与追问

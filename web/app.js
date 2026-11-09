@@ -210,7 +210,12 @@ async function runRules() {
 
 function renderRules(result) {
   const host = $('#rules-result');
-  if (!result) { host.innerHTML = ''; return; }
+  if (!result) {
+    host.innerHTML = state.deviceId
+      ? '<p class="muted">还没有规则检查记录，点击「运行规则检查」。</p>'
+      : '';
+    return;
+  }
   const c = result.counts;
   host.innerHTML = `
     <div class="cards">
@@ -245,6 +250,7 @@ function renderRules(result) {
 // ---------- change requests ----------
 function openChangeForm(findingId) {
   state.changeRequest = { findingId };
+  activateTab('changes');
   const form = $('#change-form');
   form.classList.remove('hidden');
   $('#cr-title').value = '修复规则发现的配置偏差';
