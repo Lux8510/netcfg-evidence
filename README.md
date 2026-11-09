@@ -2,7 +2,7 @@
 
 **把网络设备配置当作有版本的证据：任何一条判定都能指回具体的配置行、规则来源和审批记录。**
 
-当前进度：W1 —— 确定性解析器 + 结构化漂移检测 + SQLite/PostgreSQL 持久化 + HTTP API（前端待做）。
+当前进度：W1 —— 解析器 + 漂移检测 + 持久化 API + 4 条确定性规则 + 证据查询 + 20 例漂移评测（前端待做）。
 
 - 不连接设备、不下发配置、不仿真全网转发
 - 解析器只覆盖**明确声明**的 FRR 语法子集，未知行逐条记录，不静默丢弃
@@ -65,8 +65,33 @@ print(report.as_dict())
 | POST | `/api/devices/{id}/drift` | 计算漂移并落库 |
 | GET | `/api/devices/{id}/drift` | 漂移报告历史 |
 | GET | `/api/drift/{id}` | 单份漂移报告 |
+| GET | `/api/rules` | 规则清单（ID、说明、来源、级别） |
+| POST | `/api/devices/{id}/rules/check` | 对某版本跑规则，落库 Findings |
+| GET | `/api/devices/{id}/findings` | 查询 Findings（可按 `run_id` 过滤） |
+| GET | `/api/versions/{id}/lines?start=&end=` | 取原始配置行作为证据 |
 
 数据库默认 `sqlite:///./netcfg.db`，可用 `NETCFG_DATABASE_URL` 指向 PostgreSQL。
+
+## 规则与三值判定
+
+4 条规则全部是确定性函数，不调用模型：
+
+| ID | 规则 | 违规条件 |
+| --- | --- | --- |
+| R001 | 点到点 OSPF 接口必须显式设置 cost | `network point-to-point` 但没有 `ip ospf cost` |
+| R002 | network 宣告必须匹配本机接口网段 | 宣告的前缀不在任何接口网段内 |
+| R003 | Loopback 接口必须 passive | `lo` 有地址但不在 passive 列表 |
+| R004 | router-id 必须是本机 Loopback 地址 | 不一致 |
+
+每条规则的判定结果是 **violated / satisfied / undetermined**。当配置里存在未解析的 OSPF 相关行时，结果为 `undetermined`，**不会**被当成通过。
+
+## 评测
+
+```bash
+make eval    # 20 个人工标注的漂移案例
+```
+
+当前结果：**20/20 精确匹配，precision 1.0000，recall 1.0000**。期望值由人工写死，不由被测实现生成。
 
 ## 目录
 
@@ -76,7 +101,10 @@ domain/netcfg/drift.py     结构化漂移检测
 domain/netcfg/service.py   业务逻辑：导入、基线、漂移、序列化
 engine/db.py               数据库连接与会话
 engine/models.py           设备、配置版本、基线、漂移报告
+domain/netcfg/rules.py     4 条确定性规则与三值判定
 api/main.py                FastAPI 路由
+evals/build_cases.py       生成 20 个漂移案例
+evals/run_eval.py          评测脚本（precision/recall）
 samples/frr/               真实实验配置样本（脱敏）
 tests/                     解析与漂移测试
 DESIGN.md                  完整设计草案

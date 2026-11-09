@@ -119,6 +119,24 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     def list_drifts(device_id: str, db: Session = Depends(get_db)):
         return ok([service.drift_payload(r) for r in service.list_drifts(db, device_id)])
 
+    @app.get("/api/rules")
+    def list_rules():
+        from domain.netcfg.rules import rules_payload
+        return ok(rules_payload())
+
+    @app.post("/api/devices/{device_id}/rules/check", status_code=201)
+    def run_rules(device_id: str, body: DriftBody | None = None, db: Session = Depends(get_db)):
+        version_id = body.current_version_id if body else None
+        return ok(service.run_rules_check(db, device_id, version_id))
+
+    @app.get("/api/devices/{device_id}/findings")
+    def list_findings(device_id: str, run_id: str | None = None, db: Session = Depends(get_db)):
+        return ok([service.finding_payload(row) for row in service.list_findings(db, device_id, run_id)])
+
+    @app.get("/api/versions/{version_id}/lines")
+    def version_lines(version_id: str, start: int = 1, end: int = 1, db: Session = Depends(get_db)):
+        return ok(service.version_lines(db, version_id, start, end))
+
     @app.get("/api/drift/{report_id}")
     def get_drift(report_id: str, db: Session = Depends(get_db)):
         report = db.get(DriftReport, report_id)

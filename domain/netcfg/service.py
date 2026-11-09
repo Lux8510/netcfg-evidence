@@ -7,7 +7,8 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from engine.models import Baseline, ConfigVersion, Device, DriftReport
+from engine.models import Baseline, ConfigVersion, Device, DriftReport, Finding
+from engine.models import uid
 
 from .drift import diff_configs
 from .parser import ParsedConfig, parse_frr_config
@@ -189,4 +190,80 @@ def drift_payload(report: DriftReport) -> dict[str, Any]:
         "summary": report.summary,
         "items": report.items,
         "created_at": report.created_at.isoformat(),
+    }
+
+
+def run_rules_check(db: Session, device_id: str, version_id: str | None = None) -> dict[str, Any]:
+    """Run the deterministic rule set against one version and persist the findings."""
+    from . import rules as rules_module
+
+    _device(db, device_id)
+    version = get_version(db, version_id) if version_id else latest_version(db, device_id)
+    if version.device_id != device_id:
+        raise ServiceError("VERSION_MISMATCH", "配置版本不属于该设备", 422)
+
+    parsed = parse_frr_config(version.raw_text, version.source_name)
+    result = rules_module.run_rules(parsed)
+    run_id = uid()
+    stored = []
+    for finding in result["findings"]:
+        row = Finding(
+            run_id=run_id, device_id=device_id, config_version_id=version.id,
+            rule_id=finding.rule_id, status=finding.status, message=finding.message,
+            evidence=[item.as_dict() for item in finding.evidence],
+        )
+        db.add(row)
+        stored.append(row)
+    db.flush()
+    return {
+        "run_id": run_id,
+        "device_id": device_id,
+        "config_version_id": version.id,
+        "digest": {"sha256": version.raw_sha256, "canonical_sha256": version.canonical_sha256},
+        "counts": {
+            "rules_checked": result["rules_checked"],
+            "rules_satisfied": result["rules_satisfied"],
+            "findings_violated": result["findings_violated"],
+            "findings_undetermined": result["findings_undetermined"],
+        },
+        "findings": [finding_payload(row) for row in stored],
+    }
+
+
+def finding_payload(row: Finding) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "run_id": row.run_id,
+        "device_id": row.device_id,
+        "config_version_id": row.config_version_id,
+        "rule_id": row.rule_id,
+        "status": row.status,
+        "message": row.message,
+        "evidence": row.evidence,
+        "created_at": row.created_at.isoformat(),
+    }
+
+
+def list_findings(db: Session, device_id: str, run_id: str | None = None) -> list[Finding]:
+    _device(db, device_id)
+    query = select(Finding).where(Finding.device_id == device_id)
+    if run_id:
+        query = query.where(Finding.run_id == run_id)
+    return list(db.scalars(query.order_by(Finding.created_at.desc(), Finding.id)))
+
+
+def version_lines(db: Session, version_id: str, start: int, end: int) -> dict[str, Any]:
+    version = get_version(db, version_id)
+    start = max(1, start)
+    if end < start or end - start > 200:
+        raise ServiceError("LINE_RANGE_INVALID", "行号范围无效或超过 200 行", 422)
+    end = min(end, version.line_count)
+    if end < start:
+        raise ServiceError("LINE_RANGE_INVALID", "行号范围超出该版本行数", 422)
+    lines = version.raw_text.splitlines()
+    return {
+        "version_id": version.id,
+        "start": start,
+        "end": end,
+        "lines": [{"line": number, "text": lines[number - 1]} for number in range(start, end + 1)],
     }

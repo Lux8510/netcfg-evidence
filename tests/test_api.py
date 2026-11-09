@@ -132,3 +132,59 @@ def test_unusable_config_returns_422(app_client):
                                json={"text": "hostname x\x00", "source_name": "bad"})
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "CONFIG_UNUSABLE"
+
+
+def test_rules_endpoint_lists_rule_metadata(app_client):
+    rules = app_client.get("/api/rules").json()["data"]
+    assert [rule["id"] for rule in rules] == ["R001", "R002", "R003", "R004"]
+    assert all(rule["source"] and rule["severity"] for rule in rules)
+
+
+def test_rules_check_clean_config_has_no_findings(app_client, r1_text):
+    device_id = create_device(app_client)
+    version_id = import_config(app_client, device_id, r1_text).json()["data"]["id"]
+    result = app_client.post(f"/api/devices/{device_id}/rules/check", json={}).json()["data"]
+    assert result["counts"] == {"rules_checked": 4, "rules_satisfied": 4,
+                                "findings_violated": 0, "findings_undetermined": 0}
+    assert result["findings"] == []
+    assert result["config_version_id"] == version_id
+    assert result["digest"]["sha256"]
+
+
+def test_rules_check_persists_findings_with_evidence(app_client, r1_text):
+    device_id = create_device(app_client)
+    broken = r1_text.replace(" ip ospf cost 10\n", "").replace(" passive-interface lo\n", "")
+    version_id = import_config(app_client, device_id, broken).json()["data"]["id"]
+    result = app_client.post(f"/api/devices/{device_id}/rules/check", json={}).json()["data"]
+    assert result["counts"]["findings_violated"] == 2
+    rule_ids = sorted(item["rule_id"] for item in result["findings"])
+    assert rule_ids == ["R001", "R003"]
+
+    stored = app_client.get(f"/api/devices/{device_id}/findings",
+                            params={"run_id": result["run_id"]}).json()["data"]
+    assert len(stored) == 2
+    evidence = stored[0]["evidence"][0]
+    assert evidence["line"] is not None and evidence["text"]
+
+    # The evidence line must match the original text exactly.
+    line = app_client.get(f"/api/versions/{version_id}/lines",
+                          params={"start": evidence["line"], "end": evidence["line"]}).json()["data"]
+    assert line["lines"][0]["text"].strip() == evidence["text"]
+
+
+def test_rules_check_undetermined_when_ospf_line_unparsed(app_client, r1_text):
+    device_id = create_device(app_client)
+    text = r1_text.replace(" ip ospf cost 10\n", " ip ospf cost 10\n ip ospf bfd\n")
+    import_config(app_client, device_id, text)
+    result = app_client.post(f"/api/devices/{device_id}/rules/check", json={}).json()["data"]
+    assert result["counts"]["findings_undetermined"] == 4
+    assert {item["status"] for item in result["findings"]} == {"undetermined"}
+
+
+def test_line_evidence_bounds(app_client, r1_text):
+    device_id = create_device(app_client)
+    version_id = import_config(app_client, device_id, r1_text).json()["data"]["id"]
+    assert app_client.get(f"/api/versions/{version_id}/lines", params={"start": 999, "end": 1000}).status_code == 422
+    assert app_client.get(f"/api/versions/{version_id}/lines", params={"start": 1, "end": 500}).status_code == 422
+    ok = app_client.get(f"/api/versions/{version_id}/lines", params={"start": 10, "end": 11}).json()["data"]
+    assert [row["line"] for row in ok["lines"]] == [10, 11]
