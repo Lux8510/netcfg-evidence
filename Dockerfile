@@ -13,7 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY api domain engine web migrations scripts alembic.ini ./
 
-RUN mkdir -p /data && chown -R app:app /app /data
+RUN mkdir -p /data && chown -R app:app /app /data && ls -la /app && ls -la /app/migrations
 USER app
 
 ENV NETCFG_DATABASE_URL=sqlite:////data/netcfg.db \
