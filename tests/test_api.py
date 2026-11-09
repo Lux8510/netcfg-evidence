@@ -190,3 +190,12 @@ def test_line_evidence_bounds(app_client, r1_text):
     assert app_client.get(f"/api/versions/{version_id}/lines", params={"start": 1, "end": 500}).status_code == 422
     ok = app_client.get(f"/api/versions/{version_id}/lines", params={"start": 10, "end": 11}).json()["data"]
     assert [row["line"] for row in ok["lines"]] == [10, 11]
+
+
+def test_web_ui_is_served_without_shadowing_api(app_client):
+    index = app_client.get("/")
+    assert index.status_code == 200
+    assert "netcfg-evidence" in index.text
+    assert app_client.get("/app.js").status_code == 200
+    assert app_client.get("/styles.css").status_code == 200
+    assert app_client.get("/api/health").json()["data"]["status"] == "ok"

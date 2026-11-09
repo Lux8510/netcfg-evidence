@@ -3,16 +3,21 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Callable, Iterator
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from domain.netcfg import service
 from engine.db import SessionLocal, init_db
 from engine.models import DriftReport
+
+
+WEB_DIR = Path(__file__).resolve().parents[1] / "web"
 
 
 class StrictBody(BaseModel):
@@ -214,6 +219,10 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         if report is None:
             raise service.ServiceError("DRIFT_NOT_FOUND", "漂移报告不存在", 404)
         return ok(service.drift_payload(report))
+
+    if WEB_DIR.is_dir():
+        # Mounted last so /api and /docs keep priority.
+        app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="web")
 
     return app
 

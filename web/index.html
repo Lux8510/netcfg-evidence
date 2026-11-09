@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>netcfg-evidence · 配置证据链</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="dot"></span>
+      <strong>netcfg-evidence</strong>
+      <span class="muted">配置基线 · 漂移 · 证据链</span>
+    </div>
+    <div class="device-bar">
+      <select id="device-select" aria-label="设备"></select>
+      <input id="device-name" placeholder="新设备名，如 r1" aria-label="新设备名">
+      <button id="create-device" class="btn ghost">新增设备</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="panel">
+      <h2>配置版本</h2>
+      <form id="import-form" class="stack">
+        <input id="source-name" placeholder="来源名称，如 r1-baseline" aria-label="来源名称">
+        <textarea id="config-text" rows="10" spellcheck="false" aria-label="配置文本"
+                  placeholder="粘贴 FRR 配置，例如：&#10;hostname r1&#10;interface eth2&#10; ip address 10.12.0.1/30&#10; ip ospf network point-to-point&#10; ip ospf cost 10"></textarea>
+        <button class="btn primary" type="submit">导入配置</button>
+        <p class="hint">相同字节重复导入会返回同一版本（幂等）。</p>
+      </form>
+      <div id="version-list" class="list"></div>
+    </aside>
+
+    <section class="content">
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="drift">漂移</button>
+        <button class="tab" data-tab="rules">规则与证据</button>
+        <button class="tab" data-tab="changes">变更单与审批</button>
+        <button class="tab" data-tab="explain">解释</button>
+      </nav>
+
+      <div id="status" class="status" role="status"></div>
+
+      <div class="tabpane active" id="pane-drift">
+        <div class="row">
+          <button id="compute-drift" class="btn primary">与基线比对</button>
+          <span id="baseline-label" class="muted"></span>
+        </div>
+        <div id="drift-result"></div>
+      </div>
+
+      <div class="tabpane" id="pane-rules">
+        <div class="row">
+          <button id="run-rules" class="btn primary">运行规则检查</button>
+          <span class="muted">4 条确定性规则；无法判定不会被当成通过</span>
+        </div>
+        <div id="rules-result"></div>
+      </div>
+
+      <div class="tabpane" id="pane-changes">
+        <div id="change-form" class="panel inline hidden">
+          <h3>生成变更单</h3>
+          <label>标题<input id="cr-title"></label>
+          <label>理由<textarea id="cr-rationale" rows="2"></textarea></label>
+          <label>建议命令（每行一条，不会自动执行）<textarea id="cr-commands" rows="4" spellcheck="false"></textarea></label>
+          <label>创建人<input id="cr-actor" placeholder="真实姓名"></label>
+          <div class="row">
+            <button id="cr-submit" class="btn primary">创建</button>
+            <button id="cr-cancel" class="btn ghost">取消</button>
+          </div>
+        </div>
+        <div id="changes-result"></div>
+      </div>
+
+      <div class="tabpane" id="pane-explain">
+        <div class="row">
+          <button id="run-explain" class="btn primary">为最近一次检查生成解释</button>
+          <span class="muted">Mock 解释器；引用校验失败会被标记 rejected</span>
+        </div>
+        <div id="explain-result"></div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="lines-dialog">
+    <div class="row"><strong id="lines-title">原文</strong><button id="lines-close" class="btn ghost">关闭</button></div>
+    <pre id="lines-body"></pre>
+  </dialog>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

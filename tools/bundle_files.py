@@ -10,7 +10,7 @@ INCLUDE_FILES = (
     "README.md", "DESIGN.md", "REVIEW_GUIDE.md", "AGENTS.md", "Makefile",
     "requirements-dev.txt", "pyproject.toml", "review-feedback/README.md",
 )
-INCLUDE_DIRS = ("api", "domain", "engine", "tests", "evals", "samples", "docs", "tools")
+INCLUDE_DIRS = ("api", "domain", "engine", "tests", "evals", "samples", "docs", "tools", "web")
 EXCLUDE_PARTS = {".venv", ".venv312", "__pycache__", ".pytest_cache", ".git"}
 EXCLUDE_SUFFIXES = {".pyc", ".db", ".sqlite"}
 EXCLUDE_NAMES = {".env", "report.json", "rules-report.json", "explain-report.json", "netcfg.db"}
