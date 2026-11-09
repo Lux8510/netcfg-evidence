@@ -15,3 +15,6 @@ test-results/
 .env
 .env.*
 !.env.example
+netcfg.db-*
+*.db-wal
+*.db-shm
