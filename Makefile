@@ -1,6 +1,6 @@
 PY ?= python3
 
-.PHONY: test e2e concurrency model-check run migrate revision eval cases bundle check review-kit clean
+.PHONY: test e2e concurrency model-check user run migrate revision eval cases bundle check review-kit clean
 
 test:
 	$(PY) -m pytest
@@ -13,6 +13,10 @@ concurrency:
 
 model-check:
 	$(PY) scripts/check_model.py
+
+user:
+	@echo "用法: make user USER=何深 ROLE=editor（密码读 NETCFG_USER_PASSWORD 或交互输入）"
+	$(PY) scripts/create_user.py --username "$(USER)" --role "$(ROLE)"
 
 run:
 	$(PY) -m uvicorn api.main:app --reload --port 8000

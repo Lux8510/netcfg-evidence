@@ -130,25 +130,20 @@ def test_activate_baseline_race_returns_conflict_or_the_winner(tmp_path, r1_text
 
 
 # [07] Line evidence bounds are inclusive and validated, not silently clamped.
-def test_line_bounds_are_validated(client=None):
-    from fastapi.testclient import TestClient
-    from api.main import create_app
-    import tempfile
-
-    with tempfile.TemporaryDirectory() as folder:
-        engine = make_engine(f"sqlite:///{folder}/lines.db")
-        Base.metadata.create_all(engine)
-        factory = sessionmaker(bind=engine, expire_on_commit=False)
-        with TestClient(create_app(session_factory=factory, init_engine=engine)) as api:
-            device_id = api.post("/api/devices", json={"name": "r1"}).json()["data"]["id"]
-            text = "hostname r1\n" + "".join(f"! line {number}\n" for number in range(2, 202))
-            version_id = api.post(f"/api/devices/{device_id}/configs",
-                                  json={"text": text, "source_name": "long"}).json()["data"]["id"]
-            assert api.get(f"/api/versions/{version_id}/lines", params={"start": 0, "end": 1}).status_code == 422
-            assert api.get(f"/api/versions/{version_id}/lines", params={"start": 1, "end": 201}).status_code == 422
-            ok = api.get(f"/api/versions/{version_id}/lines", params={"start": 1, "end": 200}).json()["data"]
-            assert len(ok["lines"]) == 200
-            assert api.get(f"/api/versions/{version_id}/lines", params={"start": 500, "end": 501}).status_code == 422
+def test_line_bounds_are_validated(app_client):
+    device_id = app_client.post("/api/devices", json={"name": "lines"}).json()["data"]["id"]
+    text = "hostname r1\n" + "".join(f"! line {number}\n" for number in range(2, 202))
+    version_id = app_client.post(f"/api/devices/{device_id}/configs",
+                                 json={"text": text, "source_name": "long"}).json()["data"]["id"]
+    assert app_client.get(f"/api/versions/{version_id}/lines",
+                          params={"start": 0, "end": 1}).status_code == 422
+    assert app_client.get(f"/api/versions/{version_id}/lines",
+                          params={"start": 1, "end": 201}).status_code == 422
+    ok = app_client.get(f"/api/versions/{version_id}/lines",
+                        params={"start": 1, "end": 200}).json()["data"]
+    assert len(ok["lines"]) == 200
+    assert app_client.get(f"/api/versions/{version_id}/lines",
+                          params={"start": 500, "end": 501}).status_code == 422
 
 
 # [08] Declared-but-unparsed OSPF and missing devices must not look like success.

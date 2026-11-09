@@ -51,7 +51,7 @@ def test_create_submit_approve_apply(app_client, broken_finding):
                                json={"actor": "主管", "note": "已核对原票与规则", "idempotency_key": "approve-1"})
     assert approved.status_code == 200, approved.text
     data = approved.json()["data"]
-    assert data["status"] == "approved" and data["approved_by"] == "主管"
+    assert data["status"] == "approved" and data["approved_by"] == "何深"
     assert data["executed_on_device"] is False
 
     applied = app_client.post(f"/api/change-requests/{request_id}/apply",
@@ -61,7 +61,7 @@ def test_create_submit_approve_apply(app_client, broken_finding):
 
     events = app_client.get(f"/api/change-requests/{request_id}/events").json()["data"]
     assert [event["action"] for event in events] == ["created", "submit", "approve", "apply"]
-    assert [event["actor"] for event in events] == ["何深", "何深", "主管", "何深"]
+    assert [event["actor"] for event in events] == ["何深", "何深", "何深", "何深"]
     assert events[2]["snapshot"]["status"] == "approved"
 
 
@@ -129,13 +129,12 @@ def test_cross_device_and_non_violated_findings_are_rejected(app_client, broken_
     assert response.status_code == 422 and response.json()["error"]["code"] == "FINDING_NOT_ACTIONABLE"
 
 
-@pytest.mark.parametrize("actor", ["system", "Agent", "bot", "a", "x" * 81])
-def test_actor_must_be_a_human_name(app_client, broken_finding, actor):
+def test_body_actor_is_ignored_because_identity_comes_from_the_session(app_client, broken_finding):
     device_id, result = broken_finding
-    response = app_client.post(f"/api/devices/{device_id}/change-requests",
-                               json=create_payload([result["findings"][0]["id"]], actor=actor))
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] in {"HUMAN_APPROVAL_REQUIRED", "INVALID_ACTOR"}
+    created = app_client.post(f"/api/devices/{device_id}/change-requests",
+                              json=create_payload([result["findings"][0]["id"]], actor="system"))
+    assert created.status_code == 201
+    assert created.json()["data"]["created_by"] == "何深"
 
 
 @pytest.mark.parametrize("updates,code", [

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import os
+import re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Callable, Iterator
@@ -17,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from domain.netcfg import service
+from engine.auth import SESSION_TTL_HOURS
 from engine.db import SessionLocal, init_db
 from engine.models import DriftReport
 
@@ -29,6 +33,11 @@ load_dotenv(ROOT_DIR / ".env")
 
 class StrictBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class LoginBody(StrictBody):
+    username: str = Field(min_length=1, max_length=80)
+    password: str = Field(min_length=1, max_length=200)
 
 
 class DeviceBody(StrictBody):
@@ -57,13 +66,13 @@ class ExemptionBody(StrictBody):
     drift_report_id: str = Field(min_length=36, max_length=36)
     path: str = Field(min_length=1, max_length=200)
     reason: str = Field(min_length=10, max_length=1000)
-    actor: str = Field(min_length=1, max_length=200)
     expires_at: datetime
+    actor: str = Field(default="", max_length=200)  # ignored: identity comes from the session
 
 
 class RevokeBody(StrictBody):
-    actor: str = Field(min_length=1, max_length=200)
     note: str = Field(min_length=1, max_length=1000)
+    actor: str = Field(default="", max_length=200)  # ignored: identity comes from the session
 
 
 class LinkBody(StrictBody):
@@ -79,7 +88,7 @@ class ChangeRequestBody(StrictBody):
     rationale: str = Field(min_length=1, max_length=2000)
     finding_ids: list[str] = Field(default_factory=list, max_length=200)
     proposed_commands: list[str] = Field(default_factory=list, max_length=200)
-    actor: str = Field(min_length=1, max_length=200)
+    actor: str = Field(default="", max_length=200)  # ignored: identity comes from the session
 
 
 class ExplainBody(StrictBody):
@@ -87,8 +96,8 @@ class ExplainBody(StrictBody):
 
 
 class TransitionBody(StrictBody):
-    actor: str = Field(min_length=1, max_length=80)
     note: str = Field(min_length=1, max_length=1000)
+    actor: str = Field(default="", max_length=80)  # ignored: identity comes from the session
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=120)
 
 
@@ -103,9 +112,37 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     app = FastAPI(title="netcfg-evidence", version="0.1.0", lifespan=lifespan)
     app.state.session_factory = maker
 
-    @app.exception_handler(service.ServiceError)
-    async def service_error(request: Request, exc: service.ServiceError):
-        return JSONResponse(status_code=exc.status, content={"error": {"code": exc.code, "message": exc.message}})
+    from engine.auth import COOKIE_NAME, AuthError, authenticate, end_session, resolve, start_session, user_payload
+
+    PUBLIC_API = {"/api/health", "/api/auth/login"}
+    APPROVER_ACTION = re.compile(r"^/api/change-requests/[^/]+/(approve|reject|apply)$")
+
+    @app.middleware("http")
+    async def auth_guard(request: Request, call_next):
+        path = request.url.path
+        if not path.startswith("/api") or path in PUBLIC_API:
+            return await call_next(request)
+        db = maker()
+        try:
+            user = resolve(db, request.cookies.get(COOKIE_NAME))
+        except AuthError as exc:
+            return JSONResponse(status_code=exc.status,
+                                content={"error": {"code": exc.code, "message": exc.message}})
+        finally:
+            db.close()
+        request.state.user = user
+
+        if path == "/api/auth/logout":
+            return await call_next(request)
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+            if APPROVER_ACTION.match(path):
+                if user.role not in {"approver", "admin"}:
+                    return JSONResponse(status_code=403, content={"error": {
+                        "code": "ROLE_REQUIRED", "message": "只有审批者或管理员可以批准/拒绝/标记执行"}})
+            elif user.role not in {"editor", "admin"}:
+                return JSONResponse(status_code=403, content={"error": {
+                    "code": "ROLE_REQUIRED", "message": "当前角色只能审批，不能修改配置或登记数据"}})
+        return await call_next(request)
 
     def get_db() -> Iterator[Session]:
         db = maker()
@@ -120,6 +157,35 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
 
     def ok(data):
         return {"data": data}
+
+    @app.post("/api/auth/login")
+    def login(body: LoginBody, db: Session = Depends(get_db)):
+        try:
+            user = authenticate(db, body.username, body.password)
+        except AuthError as exc:
+            raise service.ServiceError(exc.code, exc.message, exc.status) from exc
+        token = start_session(db, user)
+        response = JSONResponse({"data": user_payload(user)})
+        secure = os.environ.get("NETCFG_COOKIE_SECURE", "false").lower() == "true"
+        response.set_cookie(COOKIE_NAME, token, httponly=True, samesite="lax",
+                            secure=secure, max_age=SESSION_TTL_HOURS * 3600, path="/")
+        return response
+
+    @app.post("/api/auth/logout")
+    def logout(request: Request, db: Session = Depends(get_db)):
+        end_session(db, request.cookies.get(COOKIE_NAME))
+        response = JSONResponse({"data": {"logged_out": True}})
+        response.delete_cookie(COOKIE_NAME, path="/")
+        return response
+
+    @app.get("/api/auth/me")
+    def me(request: Request):
+        return {"data": user_payload(request.state.user)}
+
+    @app.exception_handler(service.ServiceError)
+    async def service_error(request: Request, exc: service.ServiceError):
+        return JSONResponse(status_code=exc.status, content={"error": {"code": exc.code, "message": exc.message}})
+
 
     @app.get("/api/health")
     def health():
@@ -179,10 +245,11 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         return ok([exemptions.decorate_report(db, r) for r in service.list_drifts(db, device_id)])
 
     @app.post("/api/devices/{device_id}/drift/exemptions", status_code=201)
-    def create_exemption(device_id: str, body: ExemptionBody, db: Session = Depends(get_db)):
+    def create_exemption(device_id: str, body: ExemptionBody, request: Request,
+                         db: Session = Depends(get_db)):
         from domain.netcfg import exemptions
         row = exemptions.create_exemption(db, device_id, body.drift_report_id, body.path,
-                                          body.reason, body.actor, body.expires_at)
+                                          body.reason, request.state.user.username, body.expires_at)
         return ok(exemptions.payload(row))
 
     @app.get("/api/devices/{device_id}/drift/exemptions")
@@ -191,9 +258,11 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         return ok([exemptions.payload(row) for row in exemptions.list_exemptions(db, device_id, include_inactive)])
 
     @app.post("/api/exemptions/{exemption_id}/revoke")
-    def revoke_exemption(exemption_id: str, body: RevokeBody, db: Session = Depends(get_db)):
+    def revoke_exemption(exemption_id: str, body: RevokeBody, request: Request,
+                         db: Session = Depends(get_db)):
         from domain.netcfg import exemptions
-        return ok(exemptions.payload(exemptions.revoke_exemption(db, exemption_id, body.actor, body.note)))
+        return ok(exemptions.payload(exemptions.revoke_exemption(
+            db, exemption_id, request.state.user.username, body.note)))
 
     @app.get("/api/rules")
     def list_rules():
@@ -254,12 +323,14 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         return Response(status_code=204)
 
     @app.post("/api/devices/{device_id}/change-requests", status_code=201)
-    def create_change_request(device_id: str, body: ChangeRequestBody, db: Session = Depends(get_db)):
+    def create_change_request(device_id: str, body: ChangeRequestBody, request: Request,
+                              db: Session = Depends(get_db)):
         from domain.netcfg import change_requests as changes
-        request = changes.create_change_request(
+        change_request = changes.create_change_request(
             db, device_id, title=body.title, rationale=body.rationale,
-            finding_ids=body.finding_ids, proposed_commands=body.proposed_commands, actor=body.actor)
-        return ok(changes.request_payload(request))
+            finding_ids=body.finding_ids, proposed_commands=body.proposed_commands,
+            actor=request.state.user.username)
+        return ok(changes.request_payload(change_request))
 
     @app.get("/api/devices/{device_id}/change-requests")
     def list_change_requests(device_id: str, db: Session = Depends(get_db)):
@@ -278,11 +349,11 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
 
     @app.post("/api/change-requests/{request_id}/{action}")
     def change_request_transition(request_id: str, action: str, body: TransitionBody,
-                                  db: Session = Depends(get_db)):
+                                  request: Request, db: Session = Depends(get_db)):
         from domain.netcfg import change_requests as changes
-        request = changes.transition(db, request_id, action, actor=body.actor, note=body.note,
-                                     idempotency_key=body.idempotency_key)
-        return ok(changes.request_payload(request))
+        change_request = changes.transition(db, request_id, action, actor=request.state.user.username,
+                                            note=body.note, idempotency_key=body.idempotency_key)
+        return ok(changes.request_payload(change_request))
 
     @app.get("/api/drift/{report_id}")
     def get_drift(report_id: str, db: Session = Depends(get_db)):

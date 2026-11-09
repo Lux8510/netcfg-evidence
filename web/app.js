@@ -29,6 +29,24 @@ async function api(path, options = {}) {
   return payload.data;
 }
 
+async function currentUser() {
+  const response = await fetch('/api/auth/me');
+  if (response.status === 401) { location.href = '/login.html'; return null; }
+  const payload = await response.json();
+  return payload.data;
+}
+
+function renderUser(user) {
+  const host = document.querySelector('#user-bar');
+  if (!user) { host.innerHTML = ''; return; }
+  host.innerHTML = `<span class="muted small">${esc(user.username)} · ${esc(user.role)}</span>
+    <button id="logout" class="btn ghost small">退出</button>`;
+  document.querySelector('#logout').onclick = async () => {
+    await fetch('/api/auth/logout', { method: 'POST' });
+    location.href = '/login.html';
+  };
+}
+
 function status(text, kind = 'info') {
   const node = $('#status');
   node.textContent = text || '';
@@ -267,9 +285,6 @@ function renderDrift(report, note) {
 }
 
 async function createExemption(reportId, path) {
-  const actee = localStorage.getItem('actor') || prompt('登记人（真实姓名）') || '';
-  if (!actee) return;
-  localStorage.setItem('actor', actee);
   const days = prompt('豁免多少天后到期？（1–365）', '7');
   if (!days) return;
   const daysNumber = Number(days);
@@ -282,7 +297,7 @@ async function createExemption(reportId, path) {
   try {
     const expires = new Date(Date.now() + daysNumber * 86400000).toISOString();
     await api(`/devices/${token.deviceId}/drift/exemptions`, { body: {
-      drift_report_id: reportId, path, reason, actor: actee, expires_at: expires } });
+      drift_report_id: reportId, path, reason, expires_at: expires } });
     if (isStale(token)) return;
     await loadDrift();
     status('豁免已登记；到期后会自动恢复为待处理', 'ok');
@@ -290,13 +305,11 @@ async function createExemption(reportId, path) {
 }
 
 async function revokeExemption(exemptionId) {
-  const actee = localStorage.getItem('actor') || prompt('操作人（真实姓名）') || '';
-  if (!actee) return;
   const note = prompt('撤销原因') || '';
   if (!note) return status('必须填写撤销原因', 'error');
   const token = currentToken();
   try {
-    await api(`/exemptions/${exemptionId}/revoke`, { body: { actor: actee, note } });
+    await api(`/exemptions/${exemptionId}/revoke`, { body: { note } });
     if (isStale(token)) return;
     await loadDrift();
     status('豁免已撤销，该漂移重新变为待处理', 'ok');
@@ -384,14 +397,11 @@ function openChangeForm(findingId) {
   $('#cr-title').value = '修复规则发现的配置偏差';
   $('#cr-rationale').value = '规则检查发现该接口不符合规范，需要人工核对后修复。';
   $('#cr-commands').value = 'interface eth2\n ip ospf cost 10';
-  $('#cr-actor').value = localStorage.getItem('actor') || '';
   form.scrollIntoView({ behavior: 'smooth' });
 }
 
 async function submitChange() {
   const token = currentToken();
-  const actor = $('#cr-actor').value.trim();
-  localStorage.setItem('actor', actor);
   const commands = $('#cr-commands').value.split('\n').map((line) => line.trim()).filter(Boolean);
   try {
     const request = await api(`/devices/${token.deviceId}/change-requests`, {
@@ -400,7 +410,6 @@ async function submitChange() {
         rationale: $('#cr-rationale').value.trim(),
         finding_ids: [state.changeRequest.findingId],
         proposed_commands: commands,
-        actor,
       },
     });
     if (isStale(token)) return;
@@ -457,14 +466,11 @@ async function transition(requestId, action, ownerDevice) {
     return status('设备已切换，已阻止对上一台设备变更单的操作', 'error');
   }
   const token = currentToken();
-  const actor = localStorage.getItem('actor') || prompt('审批人 / 操作人（真实姓名）') || '';
-  if (!actor) return;
-  localStorage.setItem('actor', actor);
   const note = prompt('操作说明（会写入审计事件）') || '';
   if (!note) return status('必须填写操作说明', 'error');
   try {
     await api(`/change-requests/${requestId}/${action}`, {
-      body: { actor, note, idempotency_key: crypto.randomUUID() },
+      body: { note, idempotency_key: crypto.randomUUID() },
     });
     if (isStale(token)) return;
     await loadChanges();
@@ -558,4 +564,5 @@ document.querySelectorAll('.tab').forEach((tab) => {
 });
 
 activateTab(location.hash.replace('#', '') || 'drift');
+currentUser().then((user) => { if (user) renderUser(user); });
 loadDevices().catch((error) => status(error.message, 'error'));

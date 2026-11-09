@@ -8,6 +8,7 @@ import time
 import urllib.request
 from pathlib import Path
 
+import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,10 +20,17 @@ def free_port() -> int:
         return sock.getsockname()[1]
 
 
+E2E_USER = "何深"
+E2E_PASSWORD = "e2e-password-1"
+
+
 @pytest.fixture()
 def server(tmp_path):
     port = free_port()
     env = {**os.environ, "NETCFG_DATABASE_URL": f"sqlite:///{tmp_path / 'e2e.db'}"}
+    subprocess.run([sys.executable, "scripts/create_user.py", "--username", E2E_USER, "--role", "admin"],
+                   cwd=ROOT, env={**env, "NETCFG_USER_PASSWORD": E2E_PASSWORD}, check=True,
+                   capture_output=True, text=True)
     process = subprocess.Popen(
         [sys.executable, "-m", "uvicorn", "api.main:app", "--port", str(port), "--log-level", "warning"],
         cwd=ROOT, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
@@ -48,7 +56,7 @@ def server(tmp_path):
 
 
 @pytest.fixture()
-def page():
+def page(server):
     playwright = pytest.importorskip("playwright.sync_api")
     with playwright.sync_playwright() as pw:
         try:
@@ -56,6 +64,11 @@ def page():
         except Exception as exc:  # no system Chrome available
             pytest.skip(f"system Chrome unavailable: {exc}")
         context = browser.new_context()
+        login = httpx.post(server + "/api/auth/login",
+                           json={"username": E2E_USER, "password": E2E_PASSWORD})
+        assert login.status_code == 200, login.text
+        context.add_cookies([{"name": "netcfg_session",
+                              "value": login.cookies["netcfg_session"], "url": server}])
         page = context.new_page()
         page.set_default_timeout(8000)
         yield page
@@ -125,14 +138,12 @@ def test_rule_finding_to_approved_change_request(page, server):
     page.fill("#cr-title", "补回 eth2 的 cost")
     page.fill("#cr-rationale", "规则 R001 要求点到点接口显式设置 cost，需要人工核对后修复。")
     page.fill("#cr-commands", "interface eth2\n ip ospf cost 10")
-    page.fill("#cr-actor", "何深")
     page.click("#cr-submit")
     page.wait_for_selector("#changes-result article:has-text('补回 eth2 的 cost')")
     accept_dialog(page, "提交审批")
     page.click("#changes-result article button:has-text('提交审批')")
     page.wait_for_selector("#changes-result article .badge:has-text('pending_approval')")
 
-    page.evaluate("localStorage.setItem('actor', '主管')")
     accept_dialog(page, "同意")
     page.click("#changes-result article button:has-text('批准')")
     page.wait_for_selector("#changes-result article .badge:has-text('approved')")
@@ -172,12 +183,12 @@ def test_explanations_show_rejected_and_accepted_marks(page, server):
     assert "R001" in text and "引用" in text
 
 
-import httpx  # noqa: E402
-
-
 def api_post(base: str, path: str, payload: dict) -> dict:
     with httpx.Client(timeout=10) as http:
-        response = http.post(base + path, json=payload)
+        login = http.post(base + "/api/auth/login",
+                          json={"username": E2E_USER, "password": E2E_PASSWORD})
+        assert login.status_code == 200, login.text
+        response = http.post(base + path, json=payload, cookies=login.cookies)
         assert response.status_code < 400, response.text
         return response.json()["data"]
 
@@ -236,21 +247,18 @@ def test_user_content_is_escaped_in_the_browser(page, server):
 
 
 def _seed_drift(base: str) -> str:
-    with httpx.Client(timeout=10) as http:
-        device = http.post(base + "/api/devices", json={"name": "exempt-demo"}).json()["data"]["id"]
-        baseline = http.post(base + f"/api/devices/{device}/configs",
-                             json={"text": BASELINE, "source_name": "baseline"}).json()["data"]["id"]
-        http.post(base + f"/api/devices/{device}/baseline", json={"version_id": baseline})
-        http.post(base + f"/api/devices/{device}/configs",
-                  json={"text": CHANGED, "source_name": "changed"})
-        http.post(base + f"/api/devices/{device}/drift", json={})
+    device = api_post(base, "/api/devices", {"name": "exempt-demo"})["id"]
+    baseline = api_post(base, f"/api/devices/{device}/configs",
+                        {"text": BASELINE, "source_name": "baseline"})["id"]
+    api_post(base, f"/api/devices/{device}/baseline", {"version_id": baseline})
+    api_post(base, f"/api/devices/{device}/configs", {"text": CHANGED, "source_name": "changed"})
+    api_post(base, f"/api/devices/{device}/drift", {})
     return device
 
 
 def test_exemption_from_ui_and_revoke(page, server):
     device = _seed_drift(server)
     page.goto(server)
-    page.evaluate("localStorage.setItem('actor', '何深')")
     page.select_option("#device-select", device)
     page.wait_for_selector("#drift-result article:has-text('interface.eth2.ospf.cost')")
 

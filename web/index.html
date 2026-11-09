@@ -13,6 +13,7 @@
       <strong>netcfg-evidence</strong>
       <span class="muted">配置基线 · 漂移 · 证据链</span>
     </div>
+    <div class="device-bar" id="user-bar"></div>
     <div class="device-bar">
       <select id="device-select" aria-label="设备"></select>
       <input id="device-name" placeholder="新设备名，如 r1" aria-label="新设备名">
@@ -75,7 +76,6 @@
           <label>标题<input id="cr-title"></label>
           <label>理由<textarea id="cr-rationale" rows="2"></textarea></label>
           <label>建议命令（每行一条，不会自动执行）<textarea id="cr-commands" rows="4" spellcheck="false"></textarea></label>
-          <label>创建人<input id="cr-actor" placeholder="真实姓名"></label>
           <div class="row">
             <button id="cr-submit" class="btn primary">创建</button>
             <button id="cr-cancel" class="btn ghost">取消</button>

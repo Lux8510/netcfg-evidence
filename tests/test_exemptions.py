@@ -168,6 +168,6 @@ def test_api_flow_marks_items_and_creates_audit(app_client):
     assert len(listed) == 1
 
     revoked = post(f"/api/exemptions/{exemption['id']}/revoke", {"actor": "主管", "note": "偏差已整改"})
-    assert revoked["revoked_by"] == "主管"
+    assert revoked["revoked_by"] == "何深"
     after = app_client.get(f"/api/drift/{report['id']}").json()["data"]
     assert after["summary"]["exempted"] == 0

@@ -20,7 +20,7 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **159 项**
+- 单元/接口测试 **162 项**
 - 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
 - 浏览器端到端 **7 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
@@ -28,6 +28,26 @@ python3.12 -m venv .venv
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
 - 解释层：Mock 或 OpenAI 兼容真实模型 + 引用校验，解释不能改变判定
 - 覆盖设备 / 版本 / 基线 / 漂移 / 规则 / Findings 的 HTTP API
+
+## 本地账号与角色
+
+应用默认要求登录（Cookie 里只放随机会话令牌，数据库存 SHA-256）：
+
+```bash
+make user USER=你的名字 ROLE=admin        # 密码从 NETCFG_USER_PASSWORD 或交互输入
+make user USER=小王 ROLE=editor
+make user USER=老李 ROLE=approver
+```
+
+| 角色 | 能做什么 |
+| --- | --- |
+| `editor` | 读全部；导入配置、设基线、跑规则、生成变更单并提交；**不能批准/拒绝/标记执行** |
+| `approver` | 读全部；批准、拒绝、标记已执行；**不能改配置或登记数据** |
+| `admin` | 两者都做（本地单人演示方便） |
+
+- 审批人身份来自**登录会话**，请求体里的 `actor` 字段被忽略
+- 会话默认 12 小时，Cookie `HttpOnly` + `SameSite=Lax`，可通过 `NETCFG_SESSION_HOURS` / `NETCFG_COOKIE_SECURE` 调整
+- 未登录访问 `/api/*` 返回 401，前端跳转 `/login.html`
 
 ## 当前能力
 
@@ -71,6 +91,9 @@ print(report.as_dict())
 
 | 方法 | 路径 | 作用 |
 | --- | --- | --- |
+| POST | `/api/auth/login` | 登录（设置会话 Cookie） |
+| POST | `/api/auth/logout` | 退出 |
+| GET | `/api/auth/me` | 当前用户与角色 |
 | POST | `/api/devices` | 新建设备 |
 | GET | `/api/devices` | 设备列表 |
 | POST | `/api/devices/{id}/configs` | 导入配置（相同字节幂等返回原版本） |
