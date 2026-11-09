@@ -165,6 +165,9 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         except AuthError as exc:
             raise service.ServiceError(exc.code, exc.message, exc.status) from exc
         token = start_session(db, user)
+        # Commit before the client can issue its next request; the dependency teardown
+        # runs after the response is sent and would otherwise race the new session.
+        db.commit()
         response = JSONResponse({"data": user_payload(user)})
         secure = os.environ.get("NETCFG_COOKIE_SECURE", "false").lower() == "true"
         response.set_cookie(COOKIE_NAME, token, httponly=True, samesite="lax",
@@ -174,6 +177,7 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     @app.post("/api/auth/logout")
     def logout(request: Request, db: Session = Depends(get_db)):
         end_session(db, request.cookies.get(COOKIE_NAME))
+        db.commit()
         response = JSONResponse({"data": {"logged_out": True}})
         response.delete_cookie(COOKIE_NAME, path="/")
         return response
