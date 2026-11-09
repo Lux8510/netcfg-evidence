@@ -7,8 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 INCLUDE_FILES = (
-    "README.md", "DESIGN.md", "REVIEW_GUIDE.md", "Makefile",
-    "requirements-dev.txt", "pyproject.toml",
+    "README.md", "DESIGN.md", "REVIEW_GUIDE.md", "AGENTS.md", "Makefile",
+    "requirements-dev.txt", "pyproject.toml", "review-feedback/README.md",
 )
 INCLUDE_DIRS = ("api", "domain", "engine", "tests", "evals", "samples", "docs", "tools")
 EXCLUDE_PARTS = {".venv", ".venv312", "__pycache__", ".pytest_cache", ".git"}

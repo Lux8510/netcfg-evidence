@@ -88,11 +88,13 @@ print(report.as_dict())
 ## 审查
 
 ```bash
-make check    # 检查凭据、绝对路径、失效链接
-make bundle   # 生成可独立审查的 zip（含 MANIFEST 哈希与审查请求）
+make check        # 检查凭据、绝对路径、失效链接
+make bundle       # 生成可独立审查的 zip（含 MANIFEST 哈希与审查请求）
+make review-kit   # 打印用 Codex 审查的最短步骤
 ```
 
-审查流程见 [REVIEW_GUIDE.md](REVIEW_GUIDE.md)。
+审查 Agent 的约定写在 [AGENTS.md](AGENTS.md)：只审查、不改源码、意见写到 `review-feedback/`。
+详细审查路径见 [REVIEW_GUIDE.md](REVIEW_GUIDE.md)。
 
 ## 评测
 

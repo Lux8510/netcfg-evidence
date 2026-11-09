@@ -19,6 +19,7 @@ PREFIX = "netcfg-evidence"
 REVIEW_REQUEST = """# 审查请求
 
 请只基于压缩包内的文件进行审查，不要假设包外存在其他代码或数据。
+具体的审查协议、读码顺序和输出格式见包内 `AGENTS.md`。
 
 ## 项目一句话
 
