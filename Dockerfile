@@ -11,9 +11,15 @@ RUN adduser --disabled-password --gecos "" app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY api domain engine web migrations scripts alembic.ini ./
+COPY api ./api
+COPY domain ./domain
+COPY engine ./engine
+COPY web ./web
+COPY migrations ./migrations
+COPY scripts ./scripts
+COPY alembic.ini ./
 
-RUN mkdir -p /data && chown -R app:app /app /data && ls -la /app && ls -la /app/migrations
+RUN mkdir -p /data && chown -R app:app /app /data
 USER app
 
 ENV NETCFG_DATABASE_URL=sqlite:////data/netcfg.db \
