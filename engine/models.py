@@ -171,47 +171,22 @@ class RuleRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
 
 
-# --- append-only audit: enforce in the database, not just in the HTTP layer ---
-event.listen(
-    AuditEvent.__table__, "after_create",
-    DDL("""CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events
-           BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END;""").execute_if(dialect="sqlite"),
-)
-event.listen(
-    AuditEvent.__table__, "after_create",
-    DDL("""CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
-           BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END;""").execute_if(dialect="sqlite"),
-)
-event.listen(
-    AuditEvent.__table__, "after_create",
-    DDL("""CREATE OR REPLACE FUNCTION prevent_audit_mutation() RETURNS trigger AS $$
-           BEGIN RAISE EXCEPTION 'audit_events is append-only'; END; $$ LANGUAGE plpgsql;""").execute_if(dialect="postgresql"),
-)
-event.listen(
-    AuditEvent.__table__, "after_create",
-    DDL("""CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events
-           FOR EACH ROW EXECUTE FUNCTION prevent_audit_mutation();""").execute_if(dialect="postgresql"),
-)
-event.listen(
-    AuditEvent.__table__, "after_create",
-    DDL("""CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events
-           FOR EACH ROW EXECUTE FUNCTION prevent_audit_mutation();""").execute_if(dialect="postgresql"),
-)
+# --- database-level guards, shared with startup bootstrap ---
+def _register_guards() -> None:
+    from sqlalchemy import DDL, event
+    from .guards import POSTGRES_TRIGGERS, SQLITE_TRIGGERS
+
+    for name, statement in SQLITE_TRIGGERS.items():
+        table = next(t for t in (AuditEvent.__table__, ConfigVersion.__table__, Finding.__table__,
+                                 Explanation.__table__, ChangeRequest.__table__)
+                     if name.startswith(t.name))
+        event.listen(table, "after_create", DDL(statement).execute_if(dialect="sqlite"))
+
+    for name, statement in POSTGRES_TRIGGERS.items():
+        table = next(t for t in (AuditEvent.__table__, ConfigVersion.__table__, Finding.__table__,
+                                 Explanation.__table__, ChangeRequest.__table__)
+                     if name.startswith(t.name))
+        event.listen(table, "after_create", DDL(statement).execute_if(dialect="postgresql"))
 
 
-# --- configuration versions are append-only: updates are rejected by the database ---
-event.listen(
-    ConfigVersion.__table__, "after_create",
-    DDL("""CREATE TRIGGER config_versions_no_update BEFORE UPDATE ON config_versions
-           BEGIN SELECT RAISE(ABORT, 'config_versions is append-only'); END;""").execute_if(dialect="sqlite"),
-)
-event.listen(
-    ConfigVersion.__table__, "after_create",
-    DDL("""CREATE OR REPLACE FUNCTION prevent_config_version_update() RETURNS trigger AS $$
-           BEGIN RAISE EXCEPTION 'config_versions is append-only'; END; $$ LANGUAGE plpgsql;""").execute_if(dialect="postgresql"),
-)
-event.listen(
-    ConfigVersion.__table__, "after_create",
-    DDL("""CREATE TRIGGER config_versions_no_update BEFORE UPDATE ON config_versions
-           FOR EACH ROW EXECUTE FUNCTION prevent_config_version_update();""").execute_if(dialect="postgresql"),
-)
+_register_guards()

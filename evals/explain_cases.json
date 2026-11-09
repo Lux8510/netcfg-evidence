@@ -447,6 +447,35 @@
         "accepted": false,
         "reason": "line_mismatch"
       }
+    },
+    {
+      "id": "E16",
+      "description": "正文用中文数字写行号，无法归一化",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 3,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 指向第 3 行，并引用第八行。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              3
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": false,
+        "reason": "line_not_normalized"
+      }
     }
   ]
 }

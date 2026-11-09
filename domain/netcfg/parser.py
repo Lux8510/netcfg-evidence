@@ -87,6 +87,7 @@ class Interface:
     address_lines: list[int] = field(default_factory=list)
     shutdown: bool = False
     ospf: OspfInterface = field(default_factory=OspfInterface)
+    description_line: int | None = None
     start_line: int = 0
     end_line: int = 0
 
@@ -273,6 +274,7 @@ def parse_frr_config(text: str, source_name: str = "config") -> ParsedConfig:
 def _parse_interface_line(stripped: str, index: int, interface: Interface) -> bool:
     if match := DESCRIPTION_RE.match(stripped):
         interface.description = match.group(1).strip()
+        interface.description_line = index
         return True
     if match := IP_ADDRESS_RE.match(stripped):
         address = match.group(1)

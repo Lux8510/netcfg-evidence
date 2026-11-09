@@ -120,7 +120,8 @@ def diff_configs(baseline: ParsedConfig, current: ParsedConfig) -> DriftReport:
         old = baseline.interfaces[name]
         new = current.interfaces[name]
         _compare_field(items, name, "description", old.description, new.description,
-                       _block_lines(old), _block_lines(new))
+                       _line(old.description_line) or _block_lines(old),
+                       _line(new.description_line) or _block_lines(new))
         if old.addresses != new.addresses:
             old_lines, new_lines = _address_evidence(old, new)
             items.append(DriftItem(f"interface.{name}.addresses", "interface", "changed",

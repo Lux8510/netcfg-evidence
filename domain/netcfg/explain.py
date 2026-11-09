@@ -27,6 +27,7 @@ CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 OVERCLAIM_RE = re.compile(r"(已修改|已执行|已修复|已经变更|已下发|已完成变更)")
 RULE_ID_RE = re.compile(r"\bR(\d{3})\b")
 LINE_LIST_RE = re.compile(r"第\s*(\d+(?:\s*[、,，和及与]\s*\d+)*)\s*行")
+CN_LINE_RE = re.compile(r"第\s*[一二三四五六七八九十百零〇两]+\s*行")
 
 ACCEPT = "accepted"
 REJECT = "rejected"
@@ -134,6 +135,10 @@ def validate_explanation(explanation: Explanation, finding: RuleFinding, rule: R
             return Validation(False, "missing_citation")
         if any(line not in allowed for line in citation.lines):
             return Validation(False, "line_not_in_evidence")
+
+    if CN_LINE_RE.search(text):
+        # A line number we cannot normalise is still a claim; refuse instead of ignoring it.
+        return Validation(False, "line_not_normalized")
 
     mentioned: set[int] = set()
     for group in LINE_LIST_RE.findall(text):

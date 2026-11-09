@@ -37,6 +37,28 @@
 | C30 | 两端证据按钮分别打开对应版本原文 | README | 漂移响应含 `baseline_version_id` + E2E 断言 | **强制** | `tests/test_e2e_ui.py::test_import_set_baseline_and_inspect_drift_evidence` |
 | C25 | 评测期望值独立于实现 | README 评测节 | 期望值在生成脚本中手写，运行时不调用被测实现 | **强制**（代码层面） | `evals/build_*.py`、`tests/test_eval.py` |
 
+## W3 复核后的状态变化（2026-11-09）
+
+第二轮定向审查（25 条「强制」逐条确认/反驳）后，以下条目发生变化：
+
+| 条目 | 原状态 | 现状态 | 机制 |
+| --- | --- | --- | --- |
+| C04 每个解析值带行号 | 强制 | **强制（已修）** | `description_line` 单独记录，漂移证据指向该行 |
+| C06 版本只追加 | 强制 | **强制（已补 DELETE）** | 新增 `config_versions_no_delete`；代价是删除设备被阻止 |
+| C09 证据与运行版本一致 | 强制 | **部分** | API 路径已修（制表符 router ospf 也有证据）；数据库可把 Finding 指向别的版本（外键不校验同一运行） |
+| C10 未解析 OSPF 行不算通过 | 强制 | **强制（已修）** | 任何未覆盖规则在存在未解析 OSPF 行时一律 `undetermined` |
+| C12 只能由 violated 生成 | 强制 | **强制（已下沉）** | `BEFORE INSERT` 子查询校验同设备且 status=violated |
+| C13 保存创建时快照 | 强制 | **部分** | 快照不可更新、条数必须一致；但直接 INSERT 可写内容不实的快照 |
+| C15 审计只追加 | 强制 | **部分** | 行级 UPDATE/DELETE 已拒绝，新增 PostgreSQL `BEFORE TRUNCATE`；库所有者仍可 DROP 触发器 |
+| C19 解释行号受引用约束 | 强制 | **强制（已修）** | 中文数字行号无法归一化 → `line_not_normalized` |
+| C29 切换设备不残留 | 强制 | **部分** | 增加请求序号 + 设备身份双重校验；竞态只有代码层与推演，没有可重复测试 |
+| B02 部分索引可恢复 | — | **强制（已修）** | 启动时 `CREATE UNIQUE INDEX IF NOT EXISTS`；有重复 active 时拒绝启动 |
+| B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
+| UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
+| UI03 解释归属同一 run | — | **强制（已修）** | 解释按最新 run 查询，界面显示 run 标识 |
+
+审查方在临时 PostgreSQL 17.4 上验证了行级触发器、部分索引和 JSON 行为；本机只有 SQLite，因此 PG 的 TRUNCATE 与部署角色权限仍标为未验证。
+
 ## 需要修正或收窄的承诺
 
 ### C03：未知行"逐条记录"有例外

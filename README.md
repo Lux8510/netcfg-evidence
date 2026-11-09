@@ -20,7 +20,7 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **132 项**
+- 单元/接口测试 **141 项**
 - 浏览器端到端 **4 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条，三值判定 + not_applicable
@@ -96,6 +96,24 @@ print(report.as_dict())
 
 数据库默认 `sqlite:///./netcfg.db`，可用 `NETCFG_DATABASE_URL` 指向 PostgreSQL（模型与触发器按 PG 语法编写，但本机无实例，**未实测**）。
 当前用 `Base.metadata.create_all` 建表，没有迁移工具；本地结构变更时删除 `netcfg.db` 重建即可（单用户开发阶段）。
+
+## 数据库层保障
+
+以下约束由触发器/索引执行，直接写 SQL 也无法绕过（SQLite 实测；PostgreSQL 由审查方在 17.4 上核对过行级行为，TRUNCATE 与角色权限未在本地验证）：
+
+| 保障 | 机制 |
+| --- | --- |
+| 配置版本只追加 | `BEFORE UPDATE/DELETE` 触发器 |
+| 审计事件只追加 | `BEFORE UPDATE/DELETE`（PostgreSQL 另有 `BEFORE TRUNCATE`） |
+| Finding 不可改写 | `BEFORE UPDATE` 触发器 |
+| 解释记录不可改写 | `BEFORE UPDATE` 触发器 |
+| 变更单的证据快照不可改 | `BEFORE UPDATE` 比较 `finding_ids`/`findings_snapshot` |
+| 变更单必须引用同设备、violated 的 Finding | `BEFORE INSERT` 子查询校验 |
+| 快照条数必须等于 Finding 条数 | `BEFORE INSERT` 比较 JSON 数组长度 |
+| 每设备最多一条 active 基线 | 部分唯一索引，启动时幂等补建 |
+| 未知/未解析的 OSPF 行 | 任何未覆盖规则一律 `undetermined` |
+
+副作用：**删除设备会被触发器阻止**（级联会删除版本与审计）。当前没有删除 API，这是刻意选择。
 
 ## 变更单与人工审批
 
@@ -206,14 +224,14 @@ make review-kit   # 打印用 Codex 审查的最短步骤
 ## 评测
 
 ```bash
-make eval    # 漂移 20 例 + 规则判定 15 例 + 解释校验 15 例
+make eval    # 漂移 20 例 + 规则判定 15 例 + 解释校验 16 例
 ```
 
 当前结果：
 
 - 漂移：**20/20 精确匹配**，precision 1.0000，recall 1.0000
 - 规则判定：**15/15 精确匹配**，逐规则比较 60 个判定（含 satisfied / violated / undetermined / not_applicable）
-- 解释校验：**15/15 精确匹配**，覆盖 9 种拒绝原因
+- 解释校验：**16/16 精确匹配**，覆盖 10 种拒绝原因
 
 
 

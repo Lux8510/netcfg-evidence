@@ -1,56 +1,21 @@
 """Idempotent schema guarantees that must hold for existing databases too.
 
 `create_all` only creates missing tables; it does not run triggers on tables
-that already exist. Call this at startup so an older database gets the same
-append-only guarantees as a fresh one.
+that already exist, and it will not recreate a dropped index. Call this at
+startup so an older database gets the same guarantees as a fresh one.
 """
 
 from __future__ import annotations
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 
-SQLITE_TRIGGERS = {
-    "audit_events_no_update": (
-        "CREATE TRIGGER IF NOT EXISTS audit_events_no_update BEFORE UPDATE ON audit_events "
-        "BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END"
-    ),
-    "audit_events_no_delete": (
-        "CREATE TRIGGER IF NOT EXISTS audit_events_no_delete BEFORE DELETE ON audit_events "
-        "BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END"
-    ),
-    "config_versions_no_update": (
-        "CREATE TRIGGER IF NOT EXISTS config_versions_no_update BEFORE UPDATE ON config_versions "
-        "BEGIN SELECT RAISE(ABORT, 'config_versions is append-only'); END"
-    ),
-}
-
-POSTGRES_FUNCTION = """
-CREATE OR REPLACE FUNCTION prevent_mutation() RETURNS trigger AS $$
-BEGIN RAISE EXCEPTION '% is append-only', TG_TABLE_NAME; END;
-$$ LANGUAGE plpgsql
-"""
-
-POSTGRES_TRIGGERS = {
-    "audit_events_no_update": (
-        "DROP TRIGGER IF EXISTS audit_events_no_update ON audit_events; "
-        "CREATE TRIGGER audit_events_no_update BEFORE UPDATE ON audit_events "
-        "FOR EACH ROW EXECUTE FUNCTION prevent_mutation()"
-    ),
-    "audit_events_no_delete": (
-        "DROP TRIGGER IF EXISTS audit_events_no_delete ON audit_events; "
-        "CREATE TRIGGER audit_events_no_delete BEFORE DELETE ON audit_events "
-        "FOR EACH ROW EXECUTE FUNCTION prevent_mutation()"
-    ),
-    "config_versions_no_update": (
-        "DROP TRIGGER IF EXISTS config_versions_no_update ON config_versions; "
-        "CREATE TRIGGER config_versions_no_update BEFORE UPDATE ON config_versions "
-        "FOR EACH ROW EXECUTE FUNCTION prevent_mutation()"
-    ),
-}
+from .guards import (POSTGRES_FUNCTION, POSTGRES_TRIGGERS, POSTGRES_TRUNCATE_FUNCTION,
+                     SQLITE_BASELINE_INDEX, SQLITE_TRIGGERS, BASELINE_INDEX)
 
 
 def ensure_append_only(engine) -> list[str]:
-    """Create the append-only triggers if they are missing. Returns created names."""
+    """Create append-only triggers and the baseline index if missing."""
     created: list[str] = []
     dialect = engine.dialect.name
     with engine.begin() as connection:
@@ -58,9 +23,18 @@ def ensure_append_only(engine) -> list[str]:
             for name, statement in SQLITE_TRIGGERS.items():
                 connection.execute(text(statement))
                 created.append(name)
+            connection.execute(text(SQLITE_BASELINE_INDEX))
+            created.append("one_active_baseline")
         elif dialect == "postgresql":
             connection.execute(text(POSTGRES_FUNCTION))
+            connection.execute(text(POSTGRES_TRUNCATE_FUNCTION))
             for name, statement in POSTGRES_TRIGGERS.items():
                 connection.execute(text(statement))
                 created.append(name)
+            try:
+                connection.execute(text(BASELINE_INDEX))
+            except IntegrityError as exc:
+                raise RuntimeError(
+                    "存在多行 active 基线，拒绝启动；请先人工确认保留哪一条") from exc
+            created.append("one_active_baseline")
     return created

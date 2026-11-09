@@ -61,6 +61,10 @@ CASES = [
     case("E15", "正文行号与引用集合不一致（少一个）",
          "规则 R001 第 14 行有问题。", [{"rule_id": "R001", "lines": [14, 13]}], False, "line_mismatch",
          EVIDENCE_TWO),
+    case("E16", "正文用中文数字写行号，无法归一化",
+         "规则 R001 指向第 3 行，并引用第八行。", [{"rule_id": "R001", "lines": [3]}], False,
+         "line_not_normalized",
+         [{"kind": "config_line", "line": 3, "text": "no ip ospf cost", "path": "interface.eth2.ospf.cost"}]),
 ]
 
 

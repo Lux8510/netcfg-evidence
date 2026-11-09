@@ -7,6 +7,10 @@ const state = {
   changeRequest: null,
 };
 
+let loadSeq = 0;
+const currentToken = () => ({ seq: loadSeq, deviceId: state.deviceId });
+const isStale = (token) => token.seq !== loadSeq || token.deviceId !== state.deviceId;
+
 const $ = (selector) => document.querySelector(selector);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]
@@ -59,21 +63,26 @@ async function createDevice() {
 }
 
 async function refreshDevice() {
-  // Never let the previous device's findings or change form leak into the new one.
+  // Invalidate every in-flight request from the previous device before touching the DOM.
+  loadSeq += 1;
   state.findings = null;
   state.changeRequest = null;
+  state.versions = [];
+  state.baseline = null;
   $('#change-form').classList.add('hidden');
-  renderDrift(null); renderRules(null); renderExplain([]);
-  if (!state.deviceId) {
-    state.versions = []; state.baseline = null;
-    renderVersions(); renderChanges([]);
-    $('#baseline-label').textContent = '';
-    return;
-  }
-  [state.versions, state.baseline] = await Promise.all([
-    api(`/devices/${state.deviceId}/configs`),
-    api(`/devices/${state.deviceId}/baseline`),
+  renderVersions(); renderChanges([]); renderDrift(null); renderRules(null); renderExplain([]);
+  $('#baseline-label').textContent = state.deviceId ? '正在读取…' : '';
+  if (!state.deviceId) { $('#baseline-label').textContent = ''; return; }
+
+  const token = currentToken();
+  const deviceId = state.deviceId;
+  const [versions, baseline] = await Promise.all([
+    api(`/devices/${deviceId}/configs`),
+    api(`/devices/${deviceId}/baseline`),
   ]);
+  if (isStale(token)) return;
+  state.versions = versions;
+  state.baseline = baseline;
   renderVersions(); renderBaselineLabel();
   await Promise.all([loadDrift(), loadFindings(), loadChanges(), loadExplain()]);
 }
@@ -140,15 +149,19 @@ async function importConfig(event) {
 // ---------- drift ----------
 async function loadDrift() {
   if (!state.deviceId) return renderDrift(null);
+  const token = currentToken();
   const rows = await api(`/devices/${state.deviceId}/drift`);
+  if (isStale(token)) return;
   // Read-only on load. Computing a report is an explicit user action.
   if (rows.length) { renderDrift(rows[0]); return; }
   renderDrift(null, state.baseline ? '还没有漂移报告，点击「与基线比对」生成。' : null);
 }
 
 async function computeDrift() {
+  const token = currentToken();
   try {
-    const report = await api(`/devices/${state.deviceId}/drift`, { body: {} });
+    const report = await api(`/devices/${token.deviceId}/drift`, { body: {} });
+    if (isStale(token)) return;
     renderDrift(report);
     status(report.identical ? '与基线一致' : `发现 ${report.items.length} 处漂移`, report.identical ? 'ok' : 'info');
   } catch (error) { status(error.message, 'error'); }
@@ -179,17 +192,20 @@ function renderDrift(report, note) {
         </div>
       </article>`).join('')}</div>`;
   host.querySelectorAll('[data-v]').forEach((button) => {
-    button.onclick = () => showLines(button.dataset.v, button.dataset.from, button.dataset.to, '证据原文');
+    button.onclick = () => showLines(button.dataset.v, button.dataset.from, button.dataset.to, '证据原文', button.dataset.device);
   });
 }
 
 // ---------- rules ----------
 async function loadFindings() {
   if (!state.deviceId) return renderRules(null);
-  const runs = await api(`/devices/${state.deviceId}/rules/runs`);
+  const token = currentToken();
+  const runs = await api(`/devices/${token.deviceId}/rules/runs`);
+  if (isStale(token)) return;
   if (!runs.length) { renderRules(null); return; }
   const latest = runs[0];
-  const rows = await api(`/devices/${state.deviceId}/findings?run_id=${encodeURIComponent(latest.run_id)}`);
+  const rows = await api(`/devices/${token.deviceId}/findings?run_id=${encodeURIComponent(latest.run_id)}`);
+  if (isStale(token)) return;
   renderRules({
     saved: true,
     config_version_id: latest.config_version_id,
@@ -200,8 +216,10 @@ async function loadFindings() {
 }
 
 async function runRules() {
+  const token = currentToken();
   try {
-    const result = await api(`/devices/${state.deviceId}/rules/check`, { body: {} });
+    const result = await api(`/devices/${token.deviceId}/rules/check`, { body: {} });
+    if (isStale(token)) return;
     state.findings = result;
     renderRules(result);
     status(`规则 ${result.counts.rules_checked} 条：符合 ${result.counts.rules_satisfied}，违规 ${result.counts.findings_violated}，无法判定 ${result.counts.findings_undetermined}`, 'info');
@@ -234,13 +252,15 @@ function renderRules(result) {
           <div class="evidence">
             <span class="muted small">第 ${ev.line} 行</span>
             <code>${esc(ev.text)}</code>
-            <button class="btn ghost small" data-v="${esc(finding.config_version_id || result.config_version_id)}" data-from="${ev.line}" data-to="${ev.line}">看原文</button>
+            ${finding.config_version_id
+              ? `<button class="btn ghost small" data-v="${esc(finding.config_version_id)}" data-device="${esc(state.deviceId || '')}" data-from="${ev.line}" data-to="${ev.line}">看原文</button>`
+              : '<span class="muted small">缺少版本信息，无法回查</span>'}
           </div>`).join('')}
         ${finding.status === 'violated' && !finding.rule_id.startsWith('__')
           ? `<button class="btn ghost small" data-change="${esc(finding.id)}">生成变更单</button>` : ''}
       </article>`).join('')}</div>` : '<p class="muted">没有需要说明的 Finding。</p>'}`;
   host.querySelectorAll('[data-v]').forEach((button) => {
-    button.onclick = () => showLines(button.dataset.v, button.dataset.from, button.dataset.to, '证据原文');
+    button.onclick = () => showLines(button.dataset.v, button.dataset.from, button.dataset.to, '证据原文', button.dataset.device);
   });
   host.querySelectorAll('[data-change]').forEach((button) => {
     button.onclick = () => openChangeForm(button.dataset.change);
@@ -261,11 +281,12 @@ function openChangeForm(findingId) {
 }
 
 async function submitChange() {
+  const token = currentToken();
   const actor = $('#cr-actor').value.trim();
   localStorage.setItem('actor', actor);
   const commands = $('#cr-commands').value.split('\n').map((line) => line.trim()).filter(Boolean);
   try {
-    const request = await api(`/devices/${state.deviceId}/change-requests`, {
+    const request = await api(`/devices/${token.deviceId}/change-requests`, {
       body: {
         title: $('#cr-title').value.trim(),
         rationale: $('#cr-rationale').value.trim(),
@@ -274,6 +295,7 @@ async function submitChange() {
         actor,
       },
     });
+    if (isStale(token)) return;
     $('#change-form').classList.add('hidden');
     await loadChanges();
     status(`变更单已创建：${request.title}`, 'ok');
@@ -282,7 +304,9 @@ async function submitChange() {
 
 async function loadChanges() {
   if (!state.deviceId) return renderChanges([]);
-  const rows = await api(`/devices/${state.deviceId}/change-requests`);
+  const token = currentToken();
+  const rows = await api(`/devices/${token.deviceId}/change-requests`);
+  if (isStale(token)) return;
   renderChanges(rows);
 }
 
@@ -305,7 +329,7 @@ function renderChanges(rows) {
       <div class="events" id="events-${esc(row.id)}"></div>
     </article>`).join('');
   host.querySelectorAll('[data-action]').forEach((button) => {
-    button.onclick = () => transition(button.dataset.id, button.dataset.action);
+    button.onclick = () => transition(button.dataset.id, button.dataset.action, button.dataset.device);
   });
   host.querySelectorAll('[data-events]').forEach((button) => {
     button.onclick = () => loadEvents(button.dataset.events);
@@ -317,10 +341,14 @@ function statusKind(status) {
 }
 
 function actionButton(id, action, label) {
-  return `<button class="btn ghost small" data-action="${action}" data-id="${esc(id)}">${label}</button>`;
+  return `<button class="btn ghost small" data-action="${action}" data-id="${esc(id)}" data-device="${esc(state.deviceId || '')}">${label}</button>`;
 }
 
-async function transition(requestId, action) {
+async function transition(requestId, action, ownerDevice) {
+  if (ownerDevice && ownerDevice !== state.deviceId) {
+    return status('设备已切换，已阻止对上一台设备变更单的操作', 'error');
+  }
+  const token = currentToken();
   const actor = localStorage.getItem('actor') || prompt('审批人 / 操作人（真实姓名）') || '';
   if (!actor) return;
   localStorage.setItem('actor', actor);
@@ -330,6 +358,7 @@ async function transition(requestId, action) {
     await api(`/change-requests/${requestId}/${action}`, {
       body: { actor, note, idempotency_key: crypto.randomUUID() },
     });
+    if (isStale(token)) return;
     await loadChanges();
     status('状态已更新', 'ok');
   } catch (error) { status(error.message, 'error'); }
@@ -338,14 +367,18 @@ async function transition(requestId, action) {
 async function loadEvents(requestId) {
   const host = document.getElementById(`events-${requestId}`);
   if (!host) return;
+  const token = currentToken();
   const rows = await api(`/change-requests/${requestId}/events`);
+  if (isStale(token)) return;
   host.innerHTML = rows.map((row) => `<div class="muted small">${when(row.created_at)} · ${esc(row.action)} · ${esc(row.actor)} · ${esc(row.note)}</div>`).join('');
 }
 
 // ---------- explanations ----------
 async function runExplain() {
+  const token = currentToken();
   try {
-    const rows = await api(`/devices/${state.deviceId}/explanations`, { body: {} });
+    const rows = await api(`/devices/${token.deviceId}/explanations`, { body: {} });
+    if (isStale(token)) return;
     renderExplain(rows);
     status(`生成 ${rows.length} 条解释`, 'ok');
   } catch (error) { status(error.message, 'error'); }
@@ -353,25 +386,37 @@ async function runExplain() {
 
 async function loadExplain() {
   if (!state.deviceId) return renderExplain([]);
-  const rows = await api(`/devices/${state.deviceId}/explanations`);
-  renderExplain(rows);
+  const token = currentToken();
+  const runs = await api(`/devices/${token.deviceId}/rules/runs`);
+  if (isStale(token)) return;
+  if (!runs.length) { renderExplain([]); return; }
+  const latest = runs[0];
+  const rows = await api(`/devices/${token.deviceId}/explanations?run_id=${encodeURIComponent(latest.run_id)}`);
+  if (isStale(token)) return;
+  renderExplain(rows, latest.run_id);
 }
 
-function renderExplain(rows) {
+function renderExplain(rows, runId) {
   const host = $('#explain-result');
   if (!rows.length) { host.innerHTML = '<p class="muted">还没有解释记录。</p>'; return; }
+  host.dataset.run = runId || '';
   host.innerHTML = rows.map((row) => `
     <article class="item">
-      <div class="item-head"><code>${esc(row.rule_id)}</code>${badge(row.status, row.status === 'accepted' ? 'ok' : 'error')}<span class="muted small">${esc(row.reason)}</span></div>
+      <div class="item-head"><code>${esc(row.rule_id)}</code>${badge(row.status, row.status === 'accepted' ? 'ok' : 'error')}<span class="muted small">${esc(row.reason)}</span>${runId ? `<span class="muted small">run ${esc(String(runId).slice(0, 8))}</span>` : ''}</div>
       <p class="pre">${esc(row.text)}</p>
       <div class="muted small">引用：${row.citations.map((c) => `${esc(c.rule_id)} 第 ${c.lines.map(Number).filter(Number.isInteger).join(',')} 行`).join('；') || '无'} · 模型 ${esc(row.model)}</div>
     </article>`).join('');
 }
 
 // ---------- evidence lines ----------
-async function showLines(versionId, from, to, title) {
+async function showLines(versionId, from, to, title, ownerDevice) {
+  if (ownerDevice && ownerDevice !== state.deviceId) {
+    return status('设备已切换，已阻止打开上一台设备的证据', 'error');
+  }
+  const token = currentToken();
   try {
     const data = await api(`/versions/${versionId}/lines?start=${from}&end=${to}`);
+    if (isStale(token)) return;
     $('#lines-title').textContent = `${title} · 第 ${data.start}–${data.end} 行`;
     $('#lines-body').textContent = data.lines.map((line) => `${String(line.line).padStart(4, ' ')} | ${line.text}`).join('\n');
     $('#lines-dialog').showModal();

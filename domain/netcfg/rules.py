@@ -13,7 +13,10 @@ from typing import Callable, Iterable
 
 from .parser import ParsedConfig
 
-UNCERTAIN_LINE_RE = re.compile(r"^(?:no\s+|router\s+ospf|ip\s+ospf|network\s+|passive-interface\s+)")
+UNCERTAIN_LINE_RE = re.compile(
+    r"^(?:no\s+|router\s+ospf|ip\s+ospf|ospf\s+|area\s+|network\s+|passive-interface\s+|"
+    r"redistribute\s+|max-metric\s+|timers\s+|default-information\s+)"
+)
 
 
 @dataclass(frozen=True)
@@ -201,8 +204,8 @@ def run_rules(parsed: ParsedConfig, rules: Iterable[Rule] = RULES) -> dict:
     if parsed.ospf is None:
         # The text declares OSPF but the process block could not be parsed.
         reason = "配置声明了 OSPF，但进程块未被识别；无法确认下列规则的前提。"
-        evidence = tuple(Evidence("config_line", line.number, line.text)
-                         for line in parsed.unparsed if line.text.lower().startswith("router ospf"))[:3]
+        router_lines = [line for line in parsed.unparsed if re.match(r"router\s+ospf", line.text, re.IGNORECASE)]
+        evidence = tuple(Evidence("config_line", line.number, line.text) for line in router_lines[:3])
         findings = [Finding(rule.id, "undetermined", reason, evidence) for rule in rules]
         return {"rules_checked": len(rules), "rules_satisfied": 0, "rules_not_applicable": 0,
                 "findings_violated": 0, "findings_undetermined": len(findings), "findings": findings}
@@ -212,6 +215,16 @@ def run_rules(parsed: ParsedConfig, rules: Iterable[Rule] = RULES) -> dict:
     for rule in rules:
         checked += 1
         findings.extend(rule.check(parsed))
+
+    # Any OSPF-related line we could not parse means no rule may claim "satisfied".
+    uncertain = _undetermined(parsed, "R000", "unused")
+    if uncertain is not None:
+        covered = {item.rule_id for item in findings}
+        for rule in rules:
+            if rule.id not in covered:
+                reason = _undetermined(parsed, rule.id, "存在未解析的 OSPF 相关配置，无法确认本条规则。")
+                if reason is not None:
+                    findings.append(reason)
     violated = sum(1 for item in findings if item.status == "violated")
     undetermined = sum(1 for item in findings if item.status == "undetermined")
     rules_with_findings = len({item.rule_id for item in findings})
