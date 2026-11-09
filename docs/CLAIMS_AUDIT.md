@@ -62,6 +62,9 @@
 | 新增：链路两端 area 一致 | — | **强制** | R005 跨设备规则 + 证据带 version_id | `tests/test_cross_rules.py` |
 | 新增：跨设备重复地址 | — | **强制** | R006 跨设备规则 | `tests/test_cross_rules.py` |
 | 新增：链路两端同网段 | — | **强制** | R007 跨设备规则 | `tests/test_cross_rules.py` |
+| 新增：豁免只覆盖登记时的值 | — | **强制** | 豁免绑定 path + value hash | `tests/test_exemptions.py` |
+| 新增：豁免到期自动失效 | — | **强制** | 读取时按 expires_at 过滤，无需后台任务 | `tests/test_exemptions.py` |
+| 新增：豁免可撤销且留审计 | — | **强制** | 撤销写 AuditEvent，库内只追加 | `tests/test_exemptions.py` |
 | B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
 | UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
 | UI03 解释归属同一 run | — | **强制（已修）** | 解释按最新 run 查询，界面显示 run 标识 |

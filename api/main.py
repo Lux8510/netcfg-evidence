@@ -11,6 +11,8 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
@@ -49,6 +51,19 @@ class DriftBody(StrictBody):
 class RuleCheckBody(StrictBody):
     current_version_id: str | None = Field(default=None, min_length=36, max_length=36)
     include_cross: bool = False
+
+
+class ExemptionBody(StrictBody):
+    drift_report_id: str = Field(min_length=36, max_length=36)
+    path: str = Field(min_length=1, max_length=200)
+    reason: str = Field(min_length=10, max_length=1000)
+    actor: str = Field(min_length=1, max_length=200)
+    expires_at: datetime
+
+
+class RevokeBody(StrictBody):
+    actor: str = Field(min_length=1, max_length=200)
+    note: str = Field(min_length=1, max_length=1000)
 
 
 class LinkBody(StrictBody):
@@ -154,12 +169,31 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
 
     @app.post("/api/devices/{device_id}/drift", status_code=201)
     def compute_drift(device_id: str, body: DriftBody | None = None, db: Session = Depends(get_db)):
+        from domain.netcfg import exemptions
         report = service.compute_drift(db, device_id, body.current_version_id if body else None)
-        return ok(service.drift_payload(report))
+        return ok(exemptions.decorate_report(db, report))
 
     @app.get("/api/devices/{device_id}/drift")
     def list_drifts(device_id: str, db: Session = Depends(get_db)):
-        return ok([service.drift_payload(r) for r in service.list_drifts(db, device_id)])
+        from domain.netcfg import exemptions
+        return ok([exemptions.decorate_report(db, r) for r in service.list_drifts(db, device_id)])
+
+    @app.post("/api/devices/{device_id}/drift/exemptions", status_code=201)
+    def create_exemption(device_id: str, body: ExemptionBody, db: Session = Depends(get_db)):
+        from domain.netcfg import exemptions
+        row = exemptions.create_exemption(db, device_id, body.drift_report_id, body.path,
+                                          body.reason, body.actor, body.expires_at)
+        return ok(exemptions.payload(row))
+
+    @app.get("/api/devices/{device_id}/drift/exemptions")
+    def list_exemptions(device_id: str, include_inactive: bool = False, db: Session = Depends(get_db)):
+        from domain.netcfg import exemptions
+        return ok([exemptions.payload(row) for row in exemptions.list_exemptions(db, device_id, include_inactive)])
+
+    @app.post("/api/exemptions/{exemption_id}/revoke")
+    def revoke_exemption(exemption_id: str, body: RevokeBody, db: Session = Depends(get_db)):
+        from domain.netcfg import exemptions
+        return ok(exemptions.payload(exemptions.revoke_exemption(db, exemption_id, body.actor, body.note)))
 
     @app.get("/api/rules")
     def list_rules():
@@ -252,10 +286,11 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
 
     @app.get("/api/drift/{report_id}")
     def get_drift(report_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import exemptions
         report = db.get(DriftReport, report_id)
         if report is None:
             raise service.ServiceError("DRIFT_NOT_FOUND", "漂移报告不存在", 404)
-        return ok(service.drift_payload(report))
+        return ok(exemptions.decorate_report(db, report))
 
     if WEB_DIR.is_dir():
         # Mounted last so /api and /docs keep priority.

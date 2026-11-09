@@ -20,9 +20,9 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **153 项**
+- 单元/接口测试 **159 项**
 - 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
-- 浏览器端到端 **6 项**（真实 Chrome + 真实服务进程）
+- 浏览器端到端 **7 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条本机 + 3 条链路，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
@@ -79,6 +79,9 @@ print(report.as_dict())
 | POST | `/api/devices/{id}/baseline` | 设置基线版本 |
 | GET | `/api/devices/{id}/baseline` | 当前基线 |
 | POST | `/api/devices/{id}/drift` | 计算漂移并落库 |
+| POST | `/api/devices/{id}/drift/exemptions` | 为某个漂移项登记有时限的豁免 |
+| GET | `/api/devices/{id}/drift/exemptions` | 豁免列表（含过期/撤销状态） |
+| POST | `/api/exemptions/{id}/revoke` | 撤销豁免 |
 | GET | `/api/devices/{id}/drift` | 漂移报告历史 |
 | GET | `/api/drift/{id}` | 单份漂移报告 |
 | GET | `/api/rules` | 规则清单（ID、说明、来源、级别） |
@@ -147,6 +150,17 @@ draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
 - 审批人名称先做 Unicode NFKC 规范化，全角 `ＡＧＥＮＴ` 也会被拒绝
 - `executed_on_device` 恒为 `false`：系统只生成变更单，不下发配置
 - `apply` 只表示"人工已在维护窗口执行"，不验证设备状态
+
+## 漂移豁免（有时限）
+
+真实运维里总有"这条偏差是已知的、暂时保留"的情况。豁免必须：
+
+- 绑定**具体漂移项 + 当前值哈希**：同一路径以后变成别的值，不会自动被旧豁免覆盖
+- 有**到期时间**（1–365 天），到期后自动恢复为待处理，不需要后台任务
+- 有**原因和登记人**，撤销也要填原因，两者都写入审计事件
+- 同一漂移项只能有一个生效中的豁免
+
+漂移报告返回时附 `summary.exempted` 与 `summary.actionable`，界面显示"豁免/待处理"两个数字。
 
 ## 链路规则（跨设备）
 

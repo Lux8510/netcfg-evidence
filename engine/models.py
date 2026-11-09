@@ -160,6 +160,29 @@ class Explanation(Base):
     )
 
 
+class DriftExemption(Base):
+    """A reviewed, time-boxed exception for one drift item (path + current value)."""
+
+    __tablename__ = "drift_exemptions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    path: Mapped[str] = mapped_column(String(200), nullable=False)
+    value_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    revoked_by: Mapped[str | None] = mapped_column(String(80))
+    revoke_reason: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (
+        Index("one_active_exemption", "device_id", "path", "value_hash", unique=True,
+              sqlite_where=text("revoked_at IS NULL"), postgresql_where=text("revoked_at IS NULL")),
+    )
+
+
 class DeviceLink(Base):
     """One physical/logical link between two interfaces. Used by cross-device rules."""
 

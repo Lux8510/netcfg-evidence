@@ -234,6 +234,8 @@ function renderDrift(report, note) {
       <div class="card"><span>删除</span><strong>${summary.removed}</strong></div>
       <div class="card"><span>修改</span><strong>${summary.changed}</strong></div>
       <div class="card"><span>未解析行</span><strong>${summary.unparsed_current ?? 0}</strong></div>
+      <div class="card"><span>豁免</span><strong>${summary.exempted ?? 0}</strong></div>
+      <div class="card"><span>待处理</span><strong>${summary.actionable ?? summary.total}</strong></div>
     </div>
     ${report.identical ? '<p class="muted">两份配置语义一致。</p>' : ''}
     <div class="list">${report.items.map((item) => `
@@ -243,14 +245,62 @@ function renderDrift(report, note) {
           <div><span class="muted">基线</span><pre>${esc(JSON.stringify(item.old, null, 1))}</pre></div>
           <div><span class="muted">当前</span><pre>${esc(JSON.stringify(item.new, null, 1))}</pre></div>
         </div>
+        ${item.exemption ? `<div class="row gap">${badge('豁免至 ' + when(item.exemption.expires_at), 'ok')}
+          <span class="muted small">${esc(item.exemption.reason)} · ${esc(item.exemption.created_by)}</span>
+          <button class="btn ghost small" data-revoke="${esc(item.exemption.id)}">撤销豁免</button></div>` : ''}
         <div class="row gap">
           ${item.old_lines.length ? `<button class="btn ghost small" data-v="${esc(report.baseline_version_id)}" data-from="${item.old_lines[0]}" data-to="${item.old_lines[item.old_lines.length - 1]}">基线第 ${item.old_lines.join(',')} 行</button>` : ''}
+          ${!item.exemption ? `<button class="btn ghost small" data-exempt="${esc(report.id)}|${esc(item.path)}">登记豁免</button>` : ''}
           ${item.new_lines.length ? `<button class="btn ghost small" data-v="${esc(report.current_version_id)}" data-from="${item.new_lines[0]}" data-to="${item.new_lines[item.new_lines.length - 1]}">当前第 ${item.new_lines.join(',')} 行</button>` : ''}
         </div>
       </article>`).join('')}</div>`;
   host.querySelectorAll('[data-v]').forEach((button) => {
     button.onclick = () => showLines(button.dataset.v, button.dataset.from, button.dataset.to, '证据原文', button.dataset.device);
   });
+  host.querySelectorAll('[data-exempt]').forEach((button) => {
+    const [reportId, path] = button.dataset.exempt.split('|');
+    button.onclick = () => createExemption(reportId, path);
+  });
+  host.querySelectorAll('[data-revoke]').forEach((button) => {
+    button.onclick = () => revokeExemption(button.dataset.revoke);
+  });
+}
+
+async function createExemption(reportId, path) {
+  const actee = localStorage.getItem('actor') || prompt('登记人（真实姓名）') || '';
+  if (!actee) return;
+  localStorage.setItem('actor', actee);
+  const days = prompt('豁免多少天后到期？（1–365）', '7');
+  if (!days) return;
+  const daysNumber = Number(days);
+  if (!Number.isInteger(daysNumber) || daysNumber < 1 || daysNumber > 365) {
+    return status('豁免天数需要是 1–365 的整数', 'error');
+  }
+  const reason = prompt('豁免原因（至少 10 个字符）', '已知偏差，等待下个维护窗口统一整改');
+  if (!reason) return;
+  const token = currentToken();
+  try {
+    const expires = new Date(Date.now() + daysNumber * 86400000).toISOString();
+    await api(`/devices/${token.deviceId}/drift/exemptions`, { body: {
+      drift_report_id: reportId, path, reason, actor: actee, expires_at: expires } });
+    if (isStale(token)) return;
+    await loadDrift();
+    status('豁免已登记；到期后会自动恢复为待处理', 'ok');
+  } catch (error) { status(error.message, 'error'); }
+}
+
+async function revokeExemption(exemptionId) {
+  const actee = localStorage.getItem('actor') || prompt('操作人（真实姓名）') || '';
+  if (!actee) return;
+  const note = prompt('撤销原因') || '';
+  if (!note) return status('必须填写撤销原因', 'error');
+  const token = currentToken();
+  try {
+    await api(`/exemptions/${exemptionId}/revoke`, { body: { actor: actee, note } });
+    if (isStale(token)) return;
+    await loadDrift();
+    status('豁免已撤销，该漂移重新变为待处理', 'ok');
+  } catch (error) { status(error.message, 'error'); }
 }
 
 // ---------- rules ----------

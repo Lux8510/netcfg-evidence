@@ -233,3 +233,39 @@ def test_user_content_is_escaped_in_the_browser(page, server):
     assert title in page.inner_text("#changes-result")
     assert page.evaluate("document.querySelectorAll('#changes-result img').length === 0")
     assert page.evaluate("document.querySelectorAll('#device-select img').length === 0")
+
+
+def _seed_drift(base: str) -> str:
+    with httpx.Client(timeout=10) as http:
+        device = http.post(base + "/api/devices", json={"name": "exempt-demo"}).json()["data"]["id"]
+        baseline = http.post(base + f"/api/devices/{device}/configs",
+                             json={"text": BASELINE, "source_name": "baseline"}).json()["data"]["id"]
+        http.post(base + f"/api/devices/{device}/baseline", json={"version_id": baseline})
+        http.post(base + f"/api/devices/{device}/configs",
+                  json={"text": CHANGED, "source_name": "changed"})
+        http.post(base + f"/api/devices/{device}/drift", json={})
+    return device
+
+
+def test_exemption_from_ui_and_revoke(page, server):
+    device = _seed_drift(server)
+    page.goto(server)
+    page.evaluate("localStorage.setItem('actor', '何深')")
+    page.select_option("#device-select", device)
+    page.wait_for_selector("#drift-result article:has-text('interface.eth2.ospf.cost')")
+
+    answers = ["7", "已知偏差，等待下个维护窗口统一整改"]
+
+    def answer(dialog):
+        dialog.accept(answers.pop(0) if answers else "")
+
+    page.on("dialog", answer)
+    page.click("#drift-result article:has-text('interface.eth2.ospf.cost') button:has-text('登记豁免')")
+    page.wait_for_selector("#drift-result article:has-text('豁免至')")
+    assert "豁免" in page.inner_text("#drift-result")
+    page.remove_listener("dialog", answer)
+
+    page.once("dialog", lambda dialog: dialog.accept("偏差已整改"))
+    page.click("#drift-result button:has-text('撤销豁免')")
+    page.wait_for_selector("#drift-result article:has-text('登记豁免')")
+    assert "豁免至" not in page.inner_text("#drift-result")
