@@ -1,0 +1,72 @@
+"""Immutable configuration versions, one active baseline, stored drift reports."""
+
+from __future__ import annotations
+
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy.orm import Mapped, mapped_column
+
+from .db import Base
+
+
+def uid() -> str:
+    return str(uuid.uuid4())
+
+
+def now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Device(Base):
+    __tablename__ = "devices"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    name: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+
+class ConfigVersion(Base):
+    __tablename__ = "config_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    source_name: Mapped[str] = mapped_column(String(120), nullable=False)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    raw_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    canonical_sha256: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    parsed: Mapped[dict] = mapped_column(JSON, nullable=False)
+    unparsed: Mapped[list] = mapped_column(JSON, nullable=False)
+    line_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (UniqueConstraint("device_id", "raw_sha256", name="uq_config_device_raw"),)
+
+
+class Baseline(Base):
+    __tablename__ = "baselines"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    config_version_id: Mapped[str] = mapped_column(ForeignKey("config_versions.id", ondelete="CASCADE"), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (
+        Index("one_active_baseline", "device_id", unique=True,
+              sqlite_where=text("active = 1"), postgresql_where=text("active")),
+    )
+
+
+class DriftReport(Base):
+    __tablename__ = "drift_reports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    baseline_id: Mapped[str] = mapped_column(ForeignKey("baselines.id", ondelete="CASCADE"), nullable=False)
+    current_version_id: Mapped[str] = mapped_column(ForeignKey("config_versions.id", ondelete="CASCADE"), nullable=False)
+    identical: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    summary: Mapped[dict] = mapped_column(JSON, nullable=False)
+    items: Mapped[list] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
