@@ -47,7 +47,7 @@ function Field() {
 
 export default function Scene() {
   return (
-    <div className="pointer-events-none fixed inset-0 -z-10 opacity-70" aria-hidden>
+    <div className="scene pointer-events-none fixed inset-0 -z-10 opacity-70" aria-hidden>
       <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0, 6], fov: 55 }} gl={{ antialias: true, alpha: true }}>
         <Field />
       </Canvas>

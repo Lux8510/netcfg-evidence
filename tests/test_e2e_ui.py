@@ -332,3 +332,16 @@ def test_dialog_focus_and_topology_keyboard(page, server):
     node.focus()
     page.keyboard.press("Enter")
     page.wait_for_function("(id) => document.querySelector('[data-testid=device-select]').value === id", arg=second)
+
+
+def test_theme_toggle_persists(page, server):
+    page.goto(server)
+    page.wait_for_selector("[data-testid=theme-toggle]")
+    assert page.evaluate("document.documentElement.dataset.theme") == "dark"
+    page.click("[data-testid=theme-toggle]")
+    page.wait_for_function("() => document.documentElement.dataset.theme === 'light'")
+    page.reload()
+    page.wait_for_selector("[data-testid=theme-toggle]")
+    assert page.evaluate("document.documentElement.dataset.theme") == "light"
+    page.click("[data-testid=theme-toggle]")
+    page.wait_for_function("() => document.documentElement.dataset.theme === 'dark'")

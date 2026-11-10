@@ -1,10 +1,15 @@
 @import "tailwindcss";
 
+@custom-variant light (&:where([data-theme="light"], [data-theme="light"] *));
+
 @theme {
   --color-ink: #0a0c10;
   --color-surface: #0f1218;
   --color-line: #232833;
   --color-muted: #8b93a4;
+  --color-fg: #e6e9f2;
+  --color-panel: rgba(255, 255, 255, 0.03);
+  --color-panel-2: rgba(0, 0, 0, 0.22);
   --color-accent: #6aa6ff;
   --color-ok: #3ecf8e;
   --color-warn: #e0a45c;
@@ -13,15 +18,37 @@
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
+[data-theme="light"] {
+  color-scheme: light;
+  --color-ink: #f5f7fb;
+  --color-surface: #ffffff;
+  --color-line: #d8dee9;
+  --color-muted: #5b6474;
+  --color-fg: #0f172a;
+  --color-panel: rgba(255, 255, 255, 0.72);
+  --color-panel-2: rgba(15, 23, 42, 0.04);
+  --color-accent: #2563eb;
+  --color-ok: #0f8a5f;
+  --color-warn: #a86413;
+  --color-danger: #c0392b;
+}
+
 @layer base {
   html { color-scheme: dark; }
+  [data-theme="light"] { color-scheme: light; }
   body {
-    @apply bg-ink text-slate-200 antialiased;
+    @apply bg-ink text-fg antialiased;
     background-image:
       radial-gradient(60rem 40rem at 12% -10%, rgba(106,166,255,.10), transparent 60%),
       radial-gradient(50rem 36rem at 100% 0%, rgba(62,207,142,.06), transparent 55%),
       radial-gradient(40rem 30rem at 50% 110%, rgba(224,164,92,.05), transparent 60%);
     background-attachment: fixed;
+  }
+  [data-theme="light"] body {
+    background-image:
+      radial-gradient(60rem 40rem at 12% -10%, rgba(37,99,235,.08), transparent 60%),
+      radial-gradient(50rem 36rem at 100% 0%, rgba(15,138,95,.06), transparent 55%),
+      radial-gradient(40rem 30rem at 50% 110%, rgba(168,100,19,.05), transparent 60%);
   }
   ::selection { background: rgba(106,166,255,.28); }
   * { scrollbar-width: thin; scrollbar-color: #2a3040 transparent; }
@@ -29,10 +56,18 @@
 
 @layer components {
   .glass {
-    @apply relative rounded-2xl border border-[var(--color-line)] bg-white/[0.03] backdrop-blur-xl;
+    @apply relative rounded-2xl border backdrop-blur-xl;
+    border-color: var(--color-line);
+    background: var(--color-panel);
     box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 24px 60px -40px rgba(0,0,0,.9);
   }
-  .glass-hover { @apply transition-colors duration-300 hover:border-white/15 hover:bg-white/[0.045]; }
+  [data-theme="light"] .glass {
+    box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 18px 40px -32px rgba(15,23,42,.35);
+  }
+  .glass-hover { @apply transition-colors duration-300; }
+  .glass-hover:hover { border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line)); }
+  [data-theme="light"] .noise::after { opacity: .18; }
+  [data-theme="light"] .scene { opacity: .32; }
   .noise::after {
     content: "";
     position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: .35;

@@ -38,6 +38,7 @@ python3.12 -m venv .venv
 - **模型只能解释**：引用校验不过就丢弃，模型不能改变 Finding
 - **变更要人批**：审批人来自登录会话；状态机 + 唯一约束 + 追加式审计
 - **漂移可豁免**：绑定当前值与路径、带到期时间，到期自动恢复
+- **深色 / 浅色主题**：偏好持久化，首屏无闪烁；图表与 SVG 随主题切换
 
 ## 关键数字
 
@@ -121,6 +122,8 @@ make user USER=老李 ROLE=approver
 ![拓扑](docs/ui-topology.png)
 
 ![登录](docs/ui-login.png)
+
+支持深色 / 浅色主题切换，偏好存在 localStorage，首屏由内联脚本设置避免闪烁（浅色版见 [docs/ui-dashboard-light.png](docs/ui-dashboard-light.png)）。
 
 也可以直接调用模块：
 

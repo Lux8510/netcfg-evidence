@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import { LogIn } from 'lucide-react';
 import { api, type User } from '../lib/api';
-import { Button, Field, Input } from '../components/ui';
+import { Button, Field, Input, ThemeToggle } from '../components/ui';
 
 export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
   const [username, setUsername] = useState('');
@@ -33,11 +33,14 @@ export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
         animate={reduce ? undefined : { opacity: 1, y: 0 }}
         transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
       >
-        <div className="mb-6 flex items-center gap-2">
-          <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_18px_rgba(106,166,255,.9)]" />
-          <span className="text-sm font-semibold tracking-wide">netcfg-evidence</span>
+        <div className="mb-6 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_18px_rgba(106,166,255,.9)]" />
+            <span className="text-sm font-semibold tracking-wide">netcfg-evidence</span>
+          </div>
+          <ThemeToggle />
         </div>
-        <h1 className="text-lg font-semibold text-slate-100">登录</h1>
+        <h1 className="text-lg font-semibold text-fg">登录</h1>
         <p className="mt-1 text-xs leading-relaxed text-muted">本地账号。编辑者修改配置，审批者做决定。</p>
         <form onSubmit={submit} className="mt-6 space-y-3">
           <Field label="用户名">

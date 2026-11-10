@@ -6,6 +6,12 @@
     <title>netcfg-evidence · 配置证据链</title>
   </head>
   <body>
+    <script>
+      (function () {
+        var saved = localStorage.getItem('netcfg-theme');
+        document.documentElement.dataset.theme = saved === 'light' ? 'light' : 'dark';
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

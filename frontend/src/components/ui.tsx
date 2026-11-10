@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { X } from 'lucide-react';
+import { Moon, Sun, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 /* ---------- Button ---------- */
@@ -17,12 +17,31 @@ export function Button({ className, variant = 'outline', size = 'md', ...props }
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-40 disabled:pointer-events-none',
         size === 'sm' ? 'h-8 px-3 text-xs' : 'h-9 px-4 text-sm',
         variant === 'primary' && 'bg-accent text-ink hover:bg-[#8ab9ff] shadow-[0_10px_30px_-12px_rgba(106,166,255,.8)]',
-        variant === 'outline' && 'border border-white/12 bg-white/[0.02] text-slate-200 hover:border-white/25 hover:bg-white/[0.05]',
-        variant === 'ghost' && 'text-slate-300 hover:bg-white/[0.06] hover:text-white',
+        variant === 'outline' && 'border border-line bg-panel text-fg hover:border-accent/40 hover:bg-panel',
+        variant === 'ghost' && 'text-fg/90 hover:bg-panel hover:text-white',
         variant === 'danger' && 'border border-danger/40 text-danger hover:bg-danger/10',
         className,
       )}
     />
+  );
+}
+
+/* ---------- Theme toggle ---------- */
+export function ThemeToggle() {
+  const [theme, setTheme] = useState<string>(
+    () => document.documentElement.dataset.theme ?? 'dark');
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    localStorage.setItem('netcfg-theme', theme);
+  }, [theme]);
+  const next = theme === 'dark' ? 'light' : 'dark';
+  return (
+    <Button variant="ghost" size="sm" data-testid="theme-toggle"
+            aria-label={`切换到${next === 'light' ? '浅色' : '深色'}主题`}
+            title={`切换到${next === 'light' ? '浅色' : '深色'}主题`}
+            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>
+      {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+    </Button>
   );
 }
 
@@ -39,7 +58,7 @@ export function CardHeader({ title, hint, action }: { title: string; hint?: stri
   return (
     <div className="mb-4 flex items-start justify-between gap-3">
       <div>
-        <h2 className="text-sm font-semibold tracking-wide text-slate-100">{title}</h2>
+        <h2 className="text-sm font-semibold tracking-wide text-fg">{title}</h2>
         {hint && <p className="mt-1 text-xs leading-relaxed text-muted">{hint}</p>}
       </div>
       {action}
@@ -49,7 +68,7 @@ export function CardHeader({ title, hint, action }: { title: string; hint?: stri
 
 /* ---------- Inputs ---------- */
 const fieldClass =
-  'w-full rounded-lg border border-white/10 bg-black/25 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 ' +
+  'w-full rounded-lg border border-line bg-panel-2 px-3 py-2 text-sm text-fg placeholder:text-muted ' +
   'focus:border-accent/60 focus:outline-none focus:ring-2 focus:ring-accent/20 transition-colors';
 
 export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
@@ -73,7 +92,7 @@ export function Field({ label, hint, children }: { label: string; hint?: string;
 
 /* ---------- Badge ---------- */
 const badgeTone: Record<string, string> = {
-  neutral: 'border-white/15 text-slate-300',
+  neutral: 'border-line text-fg/90',
   ok: 'border-ok/40 text-ok bg-ok/10',
   warn: 'border-warn/40 text-warn bg-warn/10',
   danger: 'border-danger/40 text-danger bg-danger/10',
@@ -90,8 +109,8 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: keyof 
 /* ---------- Empty state ---------- */
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-white/10 px-4 py-8 text-center">
-      <p className="text-sm text-slate-300">{title}</p>
+    <div className="flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line px-4 py-8 text-center">
+      <p className="text-sm text-fg/90">{title}</p>
       {hint && <p className="text-xs text-muted">{hint}</p>}
     </div>
   );
@@ -144,7 +163,7 @@ export function Dialog({ open, onClose, title, children, wide }: {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-slate-100">{title}</h3>
+              <h3 className="text-sm font-semibold text-fg">{title}</h3>
               <button onClick={onClose} className="rounded-md p-1 text-muted hover:bg-white/5 hover:text-white" aria-label="关闭">
                 <X size={16} />
               </button>

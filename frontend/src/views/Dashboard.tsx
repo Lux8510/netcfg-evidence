@@ -11,7 +11,7 @@ import {
 import { diffRows } from '../lib/diff';
 import { cn, shortId, when } from '../lib/utils';
 import {
-  Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Reveal, Select, Textarea, useToast,
+  Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Reveal, Select, Textarea, ThemeToggle, useToast,
 } from '../components/ui';
 
 const statusTone: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
@@ -277,6 +277,7 @@ function Header({ user, devices, deviceId, onSelect, onCreate, onLogout, busy }:
         </Button>
         <div className="mx-1 hidden h-6 w-px bg-white/10 md:block" />
         <span className="text-xs text-muted" data-testid="user-label">{user.username} · {user.role}</span>
+        <ThemeToggle />
         <Button variant="ghost" size="sm" onClick={onLogout} data-testid="logout"><LogOut size={14} /> 退出</Button>
       </div>
     </header>
@@ -321,9 +322,9 @@ function VersionsCard({ versions, baseline, busy, onImport, onBaseline, onShow }
               initial={reduce ? undefined : { opacity: 0, y: 8 }}
               animate={reduce ? undefined : { opacity: 1, y: 0 }}
               transition={{ delay: index * 0.03 }}
-              className="rounded-xl border border-white/8 bg-black/20 p-3">
+              className="rounded-xl border border-line bg-panel-2 p-3">
               <div className="flex items-center justify-between gap-2">
-                <p className="truncate text-xs font-medium text-slate-100">{version.source_name}</p>
+                <p className="truncate text-xs font-medium text-fg">{version.source_name}</p>
                 <div className="flex shrink-0 gap-1">
                   {isBaseline && <Badge tone="ok">基线</Badge>}
                   {version.unparsed.length > 0 && <Badge tone="warn">未解析 {version.unparsed.length}</Badge>}
@@ -369,7 +370,7 @@ function DriftCard({ report, busy, onCompute, onDiff, onExempt, onRevoke, onShow
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-4" data-testid="drift-summary">
             {[['新增', report.summary.added], ['删除', report.summary.removed],
               ['修改', report.summary.changed], ['豁免', report.summary.exempted ?? 0]].map(([label, value]) => (
-              <div key={String(label)} className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
+              <div key={String(label)} className="rounded-xl border border-line bg-panel-2 px-3 py-2">
                 <p className="label">{label}</p>
                 <p className="mt-1 text-lg font-semibold tabular-nums">{value}</p>
               </div>
@@ -379,15 +380,15 @@ function DriftCard({ report, busy, onCompute, onDiff, onExempt, onRevoke, onShow
             {report.items.length === 0 && <EmptyState title="两份配置语义一致" />}
             {report.items.map((item) => (
               <article key={item.path} data-testid="drift-item" data-path={item.path}
-                       className="rounded-xl border border-white/8 bg-black/20 p-3">
+                       className="rounded-xl border border-line bg-panel-2 p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="mono text-[11px] text-slate-200">{item.path}</code>
+                  <code className="mono text-[11px] text-fg">{item.path}</code>
                   <Badge tone={item.kind === 'added' ? 'ok' : item.kind === 'removed' ? 'danger' : 'warn'}>{item.kind}</Badge>
                   {item.exemption && <Badge tone="accent">豁免至 {when(item.exemption.expires_at)}</Badge>}
                 </div>
                 <div className="mt-2 grid gap-2 sm:grid-cols-2">
-                  <pre className="mono overflow-auto rounded-lg bg-black/30 p-2 text-[10px] text-slate-400">{JSON.stringify(item.old, null, 1)}</pre>
-                  <pre className="mono overflow-auto rounded-lg bg-black/30 p-2 text-[10px] text-slate-200">{JSON.stringify(item.new, null, 1)}</pre>
+                  <pre className="mono overflow-auto rounded-lg bg-panel-2 p-2 text-[10px] text-muted">{JSON.stringify(item.old, null, 1)}</pre>
+                  <pre className="mono overflow-auto rounded-lg bg-panel-2 p-2 text-[10px] text-fg">{JSON.stringify(item.new, null, 1)}</pre>
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5">
                   <Button size="sm" variant="ghost" data-testid="diff-button"
@@ -468,7 +469,7 @@ function RulesCard({ check, busy, includeCross, onToggleCross, onRun, onEvidence
             {[['检查', check.counts.rules_checked], ['符合', check.counts.rules_satisfied],
               ['违规', check.counts.findings_violated], ['无法判定', check.counts.findings_undetermined],
               ['不适用', check.counts.rules_not_applicable]].map(([label, value]) => (
-              <div key={String(label)} className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
+              <div key={String(label)} className="rounded-xl border border-line bg-panel-2 px-3 py-2">
                 <p className="label">{label}</p>
                 <p className="mt-1 text-lg font-semibold tabular-nums">{value ?? 0}</p>
               </div>
@@ -478,17 +479,17 @@ function RulesCard({ check, busy, includeCross, onToggleCross, onRun, onEvidence
             {check.findings.length === 0 && <EmptyState title="没有需要处理的 Finding" />}
             {check.findings.map((finding) => (
               <article key={finding.id} data-testid="finding" data-rule={finding.rule_id}
-                       className="rounded-xl border border-white/8 bg-black/20 p-3">
+                       className="rounded-xl border border-line bg-panel-2 p-3">
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="mono text-[11px] text-slate-200">{finding.rule_id}</code>
+                  <code className="mono text-[11px] text-fg">{finding.rule_id}</code>
                   <Badge tone={finding.status === 'violated' ? 'danger' : 'warn'}>{finding.status}</Badge>
                 </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-slate-300">{finding.message}</p>
+                <p className="mt-1.5 text-xs leading-relaxed text-fg/90">{finding.message}</p>
                 <div className="mt-2 space-y-1">
                   {finding.evidence.map((item, index) => (
                     <div key={`${finding.id}-${index}`} className="flex flex-wrap items-center gap-2 text-[11px]">
                       <span className="text-muted">第 {item.line} 行</span>
-                      <code className="mono rounded bg-black/30 px-1.5 py-0.5">{item.text}</code>
+                      <code className="mono rounded bg-panel-2 px-1.5 py-0.5">{item.text}</code>
                       {item.line !== null && (
                         <Button size="sm" variant="ghost" data-testid="evidence-button"
                                 onClick={() => onEvidence(finding, item)}>看原文</Button>
@@ -543,8 +544,8 @@ function TopologyCard({ links, currentId, onSelect }: { links: Link[]; currentId
             const [x2, y2] = graph.position.get(link.device_b.id) ?? [0, 0];
             return (
               <g key={link.id}>
-                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="#2a3040" strokeWidth={1.5} />
-                <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6} textAnchor="middle" fill="#8b93a4" fontSize={10}>
+                <line x1={x1} y1={y1} x2={x2} y2={y2} stroke="var(--color-line)" strokeWidth={1.5} />
+                <text x={(x1 + x2) / 2} y={(y1 + y2) / 2 - 6} textAnchor="middle" fill="var(--color-muted)" fontSize={10}>
                   {link.device_a.interface} ↔ {link.device_b.interface}
                 </text>
               </g>
@@ -560,8 +561,8 @@ function TopologyCard({ links, currentId, onSelect }: { links: Link[]; currentId
                  onKeyDown={(event) => {
                    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(id); }
                  }}>
-                <circle r={26} fill={current ? '#6aa6ff' : '#121722'} stroke="#6aa6ff" strokeOpacity={current ? 1 : 0.4} />
-                <text y={4} textAnchor="middle" fontSize={11} fill={current ? '#0a0c10' : '#e2e8f0'}>
+                <circle r={26} fill={current ? 'var(--color-accent)' : 'var(--color-surface)'} stroke="var(--color-accent)" strokeOpacity={current ? 1 : 0.45} />
+                <text y={4} textAnchor="middle" fontSize={11} fill={current ? 'var(--color-ink)' : 'var(--color-fg)'}>
                   {graph.nodes.get(id)}
                 </text>
               </g>
@@ -585,13 +586,13 @@ function ChangesCard({ changes, busy, onAction }: {
       <div className="space-y-2" data-testid="changes-list">
         {changes.length === 0 && <EmptyState title="还没有变更单" hint="在规则里对一条违规生成变更单" />}
         {changes.slice(0, 6).map((request) => (
-          <article key={request.id} className="rounded-xl border border-white/8 bg-black/20 p-3">
+          <article key={request.id} className="rounded-xl border border-line bg-panel-2 p-3">
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs font-medium text-slate-100">{request.title}</p>
+              <p className="text-xs font-medium text-fg">{request.title}</p>
               <Badge tone={statusTone[request.status] ?? 'neutral'}>{request.status}</Badge>
             </div>
             <p className="mt-1 text-[11px] text-muted">{request.rationale}</p>
-            <pre className="mono mt-2 overflow-auto rounded-lg bg-black/30 p-2 text-[10px] text-accent/90">
+            <pre className="mono mt-2 overflow-auto rounded-lg bg-panel-2 p-2 text-[10px] text-accent/90">
               {request.proposed_commands.join('\n')}
             </pre>
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -635,10 +636,10 @@ function AuditCard({ rows }: { rows: AuditRow[] }) {
       <div className="max-h-[320px] space-y-1 overflow-auto pr-1" data-testid="audit-list">
         {rows.length === 0 && <EmptyState title="还没有审计事件" />}
         {rows.slice(0, 12).map((row) => (
-          <div key={row.id} className="border-l border-white/10 py-1 pl-3">
+          <div key={row.id} className="border-l border-line py-1 pl-3">
             <div className="flex flex-wrap items-center gap-2 text-[11px]">
               <Badge tone={row.action === 'approve' || row.action === 'created' ? 'ok' : 'warn'}>{row.action}</Badge>
-              <span className="text-slate-300">{row.actor}</span>
+              <span className="text-fg/90">{row.actor}</span>
               <span className="text-muted">{when(row.created_at)}</span>
             </div>
             <p className="mt-0.5 text-[11px] text-muted">{row.note}</p>
@@ -660,7 +661,7 @@ function ExplainCard({ rows, busy, onGenerate }: { rows: Explanation[]; busy: st
       <div className="grid gap-2 md:grid-cols-2" data-testid="explain-list">
         {rows.length === 0 && <EmptyState title="还没有解释记录" />}
         {rows.slice(0, 6).map((row) => (
-          <article key={row.id} className="rounded-xl border border-white/8 bg-black/20 p-3">
+          <article key={row.id} className="rounded-xl border border-line bg-panel-2 p-3">
             <div className="flex flex-wrap items-center gap-2">
               <code className="mono text-[11px]">{row.rule_id}</code>
               <Badge tone={row.status === 'accepted' ? 'ok' : 'danger'}>{row.status}</Badge>
@@ -669,7 +670,7 @@ function ExplainCard({ rows, busy, onGenerate }: { rows: Explanation[]; busy: st
                 <span className="text-[10px] text-muted">tokens {row.usage.prompt_tokens}+{row.usage.completion_tokens ?? 0}</span>
               )}
             </div>
-            <p className="mt-1.5 whitespace-pre-wrap text-[11px] leading-relaxed text-slate-300">{row.text}</p>
+            <p className="mt-1.5 whitespace-pre-wrap text-[11px] leading-relaxed text-fg/90">{row.text}</p>
             <p className="mt-1 text-[10px] text-muted">
               引用 {row.citations.map((c) => `${c.rule_id} 第 ${c.lines.join(',')} 行`).join('；') || '无'} · {row.model}
             </p>
@@ -701,16 +702,16 @@ function DiffDialog({ target, onClose }: { target: { base: string; current: stri
             <span>基线：{state.left.source_name}</span>
             <span>当前：{state.right.source_name}</span>
           </div>
-          <div className="max-h-[62vh] overflow-auto rounded-lg border border-white/10" data-testid="diff-body">
+          <div className="max-h-[62vh] overflow-auto rounded-lg border border-line" data-testid="diff-body">
             {rows.map((row, index) => {
               const leftLine = row.left === null ? '' : leftText.split('\n')[row.left];
               const rightLine = row.right === null ? '' : rightText.split('\n')[row.right];
               return (
                 <div key={index} className="mono grid grid-cols-2 text-[11px]">
-                  <div className={cn('px-2 py-0.5', row.left === null ? 'bg-white/[0.02]' : row.right === null ? 'bg-danger/15' : '')}>
+                  <div className={cn('px-2 py-0.5', row.left === null ? 'bg-panel' : row.right === null ? 'bg-danger/15' : '')}>
                     <span className="mr-2 inline-block w-8 select-none text-muted">{row.left === null ? '' : row.left + 1}</span>{leftLine}
                   </div>
-                  <div className={cn('px-2 py-0.5', row.right === null ? 'bg-white/[0.02]' : row.left === null ? 'bg-ok/15' : '')}>
+                  <div className={cn('px-2 py-0.5', row.right === null ? 'bg-panel' : row.left === null ? 'bg-ok/15' : '')}>
                     <span className="mr-2 inline-block w-8 select-none text-muted">{row.right === null ? '' : row.right + 1}</span>{rightLine}
                   </div>
                 </div>
@@ -735,7 +736,7 @@ function EvidenceDialog({ target, onClose }: {
   }, [target]);
   return (
     <Dialog open={!!target} onClose={onClose} title={target?.title ?? '原文'}>
-      <pre className="mono max-h-[60vh] overflow-auto rounded-lg bg-black/30 p-3 text-[11px] leading-relaxed" data-testid="evidence-body">
+      <pre className="mono max-h-[60vh] overflow-auto rounded-lg bg-panel-2 p-3 text-[11px] leading-relaxed" data-testid="evidence-body">
         {lines.map((row) => `${String(row.line).padStart(4, ' ')} | ${row.text}`).join('\n')}
       </pre>
     </Dialog>
