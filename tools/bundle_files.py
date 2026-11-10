@@ -14,7 +14,7 @@ INCLUDE_FILES = (
 )
 INCLUDE_DIRS = ("api", "domain", "engine", "tests", "evals", "samples", "docs", "tools", "web", "migrations", "scripts", "frontend")
 EXCLUDE_PARTS = {".venv", ".venv312", "__pycache__", ".pytest_cache", ".git", "node_modules", "dist", "model-runs"}
-EXCLUDE_SUFFIXES = {".pyc", ".db", ".sqlite", ".webm"}
+EXCLUDE_SUFFIXES = {".pyc", ".db", ".sqlite", ".webm", ".mp4"}
 EXCLUDE_NAMES = {".env", "report.json", "rules-report.json", "explain-report.json", "netcfg.db"}
 
 
