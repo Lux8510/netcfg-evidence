@@ -68,7 +68,7 @@ make user USER=老李 ROLE=approver
 - 会话默认 12 小时，Cookie `HttpOnly` + `SameSite=Lax`（HTTPS 部署设 `NETCFG_COOKIE_SECURE=true`）
 - 再次登录会废止被替换的旧会话；写请求校验 `Origin`/`Referer` 与 Host 一致（SameSite 之外的纵深防御）
 - 登录失败按「账号 + 来源 IP」计数，超过 `NETCFG_LOGIN_MAX_FAILURES`（默认 5）返回 429；密码至少 10 位并拒绝常见弱口令
-- 未登录访问 `/api/*` 返回 401，前端跳转 `/login.html`
+- 未登录访问 `/api/*` 返回 401，前端显示登录视图（单页应用，不再跳转独立页面）
 
 ## 当前能力
 
@@ -80,11 +80,13 @@ make user USER=老李 ROLE=approver
 # 接口文档：http://127.0.0.1:8000/docs
 ```
 
+构建产物已提交在 `web/`，所以运行不需要 Node；修改前端后执行 `make ui` 重建。
+
 ![工作台](docs/ui-dashboard.png)
 
 ![拓扑](docs/ui-topology.png)
 
-![拓扑](docs/ui-topology.png)
+![登录](docs/ui-login.png)
 
 也可以直接调用模块：
 
@@ -376,7 +378,7 @@ make review-kit   # 打印用 Codex 审查的最短步骤
 ## 评测
 
 ```bash
-make eval    # 漂移 20 例 + 规则判定 15 例 + 解释校验 16 例
+make eval    # 漂移 20 例 + 规则判定 15 例 + 解释校验 17 例
 ```
 
 当前结果：
@@ -412,11 +414,17 @@ evals/run_explain_eval.py  解释引用校验评测
 samples/frr/               真实实验配置样本（脱敏）
 tests/                     解析、漂移、规则、API、评测与审查回归测试
 tests/test_e2e_ui.py       浏览器端到端（真实服务进程 + Chrome）
+tests/test_properties.py   hypothesis 属性测试
+scripts/compare_models.py  多模型解释对比
+scripts/load.py            并发压测
+scripts/create_user.py     本地账号
 tests/test_concurrency.py  真实并发（多线程 HTTP）
 migrations/                Alembic 迁移
 DESIGN.md                  完整设计草案
 docs/CLAIMS_AUDIT.md      承诺与机制对照表
-docs/INTERVIEW_NOTES.md    面试知识点与追问
+docs/model-comparison.md  多模型解释对比
+frontend/                 React + Tailwind + Motion + R3F 源码
+web/                      前端构建产物
 ```
 
 ## 边界

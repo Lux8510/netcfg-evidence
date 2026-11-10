@@ -27,7 +27,7 @@
 | C19 | 解释必须引用规则与证据行 | README 解释节 | 8 类结构校验 + 行号集合一致 | **强制** | `evals/run_explain_eval.py` 15/15 |
 | C20 | 解释"不会进入展示" | README 解释节 | 实际列表接口会返回 rejected（带标记） | **文案错误，已修正** | 见下 |
 | C21 | 解释只解释、不新增事实 | README 解释节 | 只校验引用，不校验语义新增 | **部分**（已修正措辞） | 见下 |
-| C22 | 页面加载不产生写操作 | W2 审查后 | 加载只读历史，计算需显式点击 | **强制**（前端） | `web/app.js:loadDrift/loadFindings` |
+| C22 | 页面加载不产生写操作 | W2 审查后 | 加载只读历史，计算需显式点击 | **强制**（前端） | `frontend/src/views/Dashboard.tsx:loadDeviceData` |
 | C23 | 静态挂载不抢占 API/文档 | README API 节 | 挂载顺序 + 回归测试 | **强制** | `tests/test_review_w2.py::test_docs_and_openapi_stay_available` |
 | C24 | 支持 PostgreSQL | README | 模型层使用 JSON + 部分索引；**未在真实实例验证** | **部分** | 无 PostgreSQL 集成测试 |
 | C26 | 解释层可替换为真实模型 | README | `Explainer` 协议 + OpenAI 兼容适配器 + 环境变量；2026-11-09 真实 DeepSeek 调用通过 | **强制（已实测一次）** | `scripts/check_model.py`、`tests/test_providers.py` |

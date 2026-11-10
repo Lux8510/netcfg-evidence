@@ -29,7 +29,7 @@ python3 -m venv .venv
 6. `engine/models.py` — 约束是否落在数据库层
 7. `domain/netcfg/change_requests.py` — 状态机能否被绕过、审批人是否可伪造
 8. `domain/netcfg/explain.py` — 引用校验有没有漏网、rejected 是否真的不影响结论
-9. `web/app.js` — 是否有未转义的用户内容、读接口是否产生副作用
+9. `frontend/src/` — 是否有未转义的用户内容、异步写回是否校验设备身份
 10. `tests/` — 是否只有 happy path
 
 ## 必须质疑的五点
@@ -118,7 +118,7 @@ python3 -m venv .venv
 
 ### C. 前端在「多设备 / 多版本 / 多运行」切换时是否混用身份
 
-只读 `web/app.js`，指出具体行号：
+只读 `frontend/src/views/Dashboard.tsx` 与 `frontend/src/components/ui.tsx`，指出具体行号：
 
 - 切换设备后，`state.findings`、`state.changeRequest`、漂移面板是否残留上一个设备的数据
 - 规则证据按钮的 `data-v` 是否始终来自该条 Finding 自己的 `config_version_id`

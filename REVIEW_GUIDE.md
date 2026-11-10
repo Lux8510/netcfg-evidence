@@ -26,7 +26,7 @@ python3 -m venv .venv
 | 6 | `engine/models.py` | 约束是否在数据库层（唯一键、部分索引） |
 | 7 | `domain/netcfg/change_requests.py` | 状态机能否绕过、审批人能否伪造、审计是否只追加 |
 | 8 | `domain/netcfg/explain.py` | 引用校验的边界、rejected 是否影响结论 |
-| 9 | `web/app.js` | XSS、GET 副作用、错误处理 |
+| 9 | `frontend/src/` | XSS、异步写回、焦点与键盘可用性 |
 | 10 | `tests/` | 是否只测了"能跑通"，有没有边界与反例 |
 
 ## 3. 重点质疑这五处
