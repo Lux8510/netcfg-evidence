@@ -20,6 +20,9 @@ concurrency:
 load:
 	$(PY) -m pytest -m load tests/test_load.py
 
+compare:
+	$(PY) scripts/compare_models.py
+
 model-check:
 	$(PY) scripts/check_model.py
 

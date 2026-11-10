@@ -134,3 +134,29 @@ def test_rejected_explanations_are_persisted(tmp_path):
         assert db.scalar(select(Finding)) is not None
         # A rejected explanation does not change the finding.
         assert db.scalar(select(Finding)).status == "violated"
+
+
+def test_cross_device_rule_ids_are_known():
+    from domain.netcfg.cross_rules import CROSS_RULES
+    from domain.netcfg.explain import Citation, Explanation, validate_explanation
+    from domain.netcfg.rules import Evidence, Finding as RuleFinding, Rule
+
+    rule_id, title = CROSS_RULES[0]
+    rule = Rule(id=rule_id, title=title, rationale="链路两端必须一致", source="测试", severity="error",
+                check=lambda parsed: [])
+    finding = RuleFinding(rule_id=rule_id, status="violated", message="两端不一致",
+                          evidence=(Evidence("config_line", 28, "area 0.0.0.0"),))
+    explanation = Explanation(text=f"规则 {rule_id} 第 28 行显示两端区域不一致。",
+                              citations=(Citation(rule_id, (28,)),))
+    assert validate_explanation(explanation, finding, rule).accepted
+
+
+def test_negated_disclaimer_is_not_an_overclaim():
+    explanation = Explanation(
+        text="规则 R001 第 14 行缺少 cost；本解释只说明判定，不表示已修改或下发任何配置。",
+        citations=(Citation("R001", (14,)),))
+    assert validate_explanation(explanation, FINDING, RULE).accepted
+
+    real_claim = Explanation(text="规则 R001 第 14 行有问题，已修改配置并下发。",
+                             citations=(Citation("R001", (14,)),))
+    assert validate_explanation(real_claim, FINDING, RULE).reason == "overclaim"

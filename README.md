@@ -20,7 +20,7 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **180 项**（含 8 条 hypothesis 属性测试）
+- 单元/接口测试 **182 项**（含 8 条 hypothesis 属性测试）
 - 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
 - 浏览器端到端 **12 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
@@ -290,6 +290,24 @@ make model-check
 - 存在未解析的 OSPF 相关行（包括 `no ...` 与 `router ospf <instance>`）→ `undetermined`，**不会**被当成通过
 - 声明了 OSPF 但进程块无法解析 → 全部 `undetermined`
 - 完全没有 OSPF → `not_applicable`，不算通过也不算违规
+
+## 多模型对比
+
+同一批 15 条已标注 Finding，比较 `mock` / `deepseek-chat` / `deepseek-reasoner`：
+
+| 模型 | 结构接受 | 引用完全正确 | p50 | p95 | 估算成本 |
+| --- | --- | --- | --- | --- | --- |
+| mock | 15/15 | 15/15 | 0 ms | 0 ms | ¥0 |
+| deepseek-chat | 15/15 | 15/15 | 1323 ms | 1493 ms | ¥0.0204 |
+| deepseek-reasoner | 15/15 | 15/15 | 2007 ms | 2729 ms | ¥0.0671 |
+
+结论：结构指标已饱和，推理档没有带来收益却贵约 3 倍、慢约 1.8 倍，因此解释层默认 `deepseek-chat`。
+对比过程中还发现并修复了两个校验器缺陷（跨设备规则 ID 被误判 unknown_rule；否定句被误判 overclaim）。
+方法、边界与复现见 [模型对比报告](docs/model-comparison.md)。
+
+```bash
+make compare
+```
 
 ## 属性测试与压测
 

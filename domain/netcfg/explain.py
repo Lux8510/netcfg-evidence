@@ -25,6 +25,10 @@ PROMPT_VERSION = "mock-explain-1"
 MAX_TEXT = 2000
 CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 OVERCLAIM_RE = re.compile(r"(已修改|已执行|已修复|已经变更|已下发|已完成变更)")
+# "不表示已修改" is a disclaimer, not a claim. Strip negated clauses before matching.
+NEGATED_CLAIM_RE = re.compile(
+    r"(?:不|未|没有|并非|不是|无需|不会|不表示|不代表)[^。；\n]{0,16}"
+    r"(?:已修改|已执行|已修复|已经变更|已下发|已完成变更)")
 RULE_ID_RE = re.compile(r"\bR(\d{3})\b")
 LINE_LIST_RE = re.compile(r"第\s*(\d+(?:\s*[、,，和及与]\s*\d+)*)\s*行")
 CN_LINE_RE = re.compile(r"第\s*[一二三四五六七八九十百零〇两]+\s*行")
@@ -119,7 +123,7 @@ def validate_explanation(explanation: Explanation, finding: RuleFinding, rule: R
         return Validation(False, "text_invalid")
     if CONTROL_RE.search(text):
         return Validation(False, "text_invalid")
-    if OVERCLAIM_RE.search(text):
+    if OVERCLAIM_RE.search(NEGATED_CLAIM_RE.sub("", text)):
         return Validation(False, "overclaim")
 
     allowed = set(evidence_lines if evidence_lines is not None
@@ -128,7 +132,7 @@ def validate_explanation(explanation: Explanation, finding: RuleFinding, rule: R
         return Validation(False, "missing_citation")
 
     for citation in explanation.citations:
-        if citation.rule_id not in {rule_item.id for rule_item in RULES}:
+        if citation.rule_id not in _known_rule_ids():
             return Validation(False, "unknown_rule")
         if citation.rule_id != rule.id:
             return Validation(False, "rule_mismatch")
@@ -156,6 +160,17 @@ def validate_explanation(explanation: Explanation, finding: RuleFinding, rule: R
             return Validation(False, "text_cites_unlinked_rule")
 
     return Validation(True, "ok")
+
+
+_KNOWN_RULES: set[str] | None = None
+
+
+def _known_rule_ids() -> set[str]:
+    global _KNOWN_RULES
+    if _KNOWN_RULES is None:
+        from .cross_rules import CROSS_RULES
+        _KNOWN_RULES = {rule.id for rule in RULES} | {rule_id for rule_id, _ in CROSS_RULES}
+    return _KNOWN_RULES
 
 
 def rule_by_id(rule_id: str) -> Rule | None:

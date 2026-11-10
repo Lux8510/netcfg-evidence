@@ -449,6 +449,35 @@
       }
     },
     {
+      "id": "E17",
+      "description": "明确声明没有修改配置，不算过度声明",
+      "rule_id": "R001",
+      "status": "violated",
+      "evidence": [
+        {
+          "kind": "config_line",
+          "line": 14,
+          "text": "no ip ospf cost",
+          "path": "interface.eth2.ospf.cost"
+        }
+      ],
+      "explanation": {
+        "text": "规则 R001 认为第 14 行缺少 cost；本解释只说明判定，不表示已修改或下发任何配置。",
+        "citations": [
+          {
+            "rule_id": "R001",
+            "lines": [
+              14
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "accepted": true,
+        "reason": "ok"
+      }
+    },
+    {
       "id": "E16",
       "description": "正文用中文数字写行号，无法归一化",
       "rule_id": "R001",

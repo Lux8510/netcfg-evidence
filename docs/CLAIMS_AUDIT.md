@@ -90,6 +90,9 @@
 | 新增：对端证据打开对端版本 | — | **强制** | 证据按钮使用 `evidence.version_id` | `tests/test_e2e_ui.py` |
 | 新增：解释按最新运行查询 | — | **强制** | 规则与解释共用最新 `run_id` | `tests/test_e2e_ui.py` |
 | 新增：弹窗焦点与键盘操作 | — | **强制** | 初始焦点、Tab 圈定、Esc 关闭并恢复焦点；拓扑节点可回车触发 | `tests/test_e2e_ui.py` |
+| 新增：跨设备规则可被解释校验 | — | **强制** | 已知规则集合包含 R005–R007 | `tests/test_explain.py` |
+| 新增：否定式免责声明不算过度声明 | — | **强制** | 先剥离否定从句再匹配 overclaim | `evals/explain_cases.json`（17 例） |
+| 新增：解释层模型选择有数据依据 | — | **强制（本地一次性）** | 15 例三模型对比，成本/延迟/结构接受率 | `docs/model-comparison.md` |
 | B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
 | UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
 | UI03 解释归属同一 run | — | **强制（已修）** | 解释按最新 run 查询，界面显示 run 标识 |
