@@ -93,6 +93,8 @@
 | 新增：跨设备规则可被解释校验 | — | **强制** | 已知规则集合包含 R005–R007 | `tests/test_explain.py` |
 | 新增：否定式免责声明不算过度声明 | — | **强制** | 先剥离否定从句再匹配 overclaim | `evals/explain_cases.json`（17 例） |
 | 新增：只读采集只执行白名单命令 | — | **强制** | `ALLOWED_COMMANDS` + 客户端拒绝未知命令；无 shell | `tests/test_ssh_collection.py`、`tests/test_claims.py` |
+| 新增：采集器不引入任意命令执行 | — | **强制** | 无 subprocess / os.system / shell；AST 测试 | `tests/test_claims.py` |
+| 新增：SSH 测试在 CI 默认套件 | — | **强制** | 无 marker；CI 跑 `pytest` | `.github/workflows/ci.yml` |
 | 新增：采集失败不生成版本 | — | **强制** | 失败写 `collection_events`，版本表不变 | `tests/test_ssh_collection.py` |
 | 新增：变更前后快照可核对 | — | **强制** | before/after 版本 + 差异 + 规则结果落库 | `tests/test_ssh_collection.py` |
 | 新增：凭据只存环境变量引用 | — | **强制** | 目标表只存变量名，接口不回显密码 | `tests/test_ssh_collection.py` |
