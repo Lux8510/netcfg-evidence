@@ -56,11 +56,44 @@ python3 -m venv .venv
 - 评测只覆盖 20 个案例，不代表真实世界准确率
 - 并发测试尚未覆盖
 
-## 本轮定向审查（W2 复审）
+## 本轮定向审查（W4：认证 + 新前端）
 
-不再泛审。请只针对以下三块，逐条给出「确认 / 反驳」并附证据：
+请只针对以下四块，逐条给出「确认 / 反驳」并附证据：
 
-### A. CLAIMS_AUDIT 的 11 条「强制」是否真的强制
+### A. 认证与会话安全
+
+- Cookie 只放随机会话令牌、库里存 SHA-256：确认没有明文令牌落库
+- `HttpOnly` / `SameSite=Lax` 的边界：跨站 POST 是否被浏览器拦住？同站子域呢？
+- **CSRF 没有显式 token**：如果 SameSite 失效或通过同站入口，写接口能否被诱导调用？
+- 会话固定：登录是否总是新建令牌并拒绝旧令牌？退出是否真的让令牌失效？
+- 角色绕过：除 `/api/change-requests/{id}/(approve|reject|apply)` 外，是否还有写接口漏了角色检查？
+- 无登录限流 / 无密码复杂度策略：请评估影响，不要假装已实现
+- 请求体里的 `actor` 被忽略：确认审计里的操作者只能来自会话
+
+### B. 新前端（React）的 XSS 与状态隔离
+
+- 搜索一切 `dangerouslySetInnerHTML`、`innerHTML`、`eval`、`new Function`
+- SVG 拓扑、Toast、Dialog 中的用户内容是否都经过 React 的自动转义
+- 切换设备时：`drift` / `ruleCheck` / `changes` / `explanations` / `audit` 是否会短暂或持久地显示上一台设备的数据
+- 异步响应竞态：快速切换设备后，旧请求返回是否还能写入状态（代码里有没有请求序号或 abort）
+- 证据按钮是否始终绑定该 Finding 自己的 `config_version_id`
+
+### C. 3D、动效与可访问性
+
+- `<900px` 或 `prefers-reduced-motion` 时 3D 是否真的不加载
+- Canvas 是否 `aria-hidden`、是否拦截鼠标事件
+- 键盘可达性：Dialog 能否 ESC 关闭、焦点是否可预期；纯图标按钮是否有 `aria-label`
+- 颜色对比度：`--color-muted` 在深色背景上的可读性
+- 动效是否可能引发布局抖动或影响阅读
+
+### D. 承诺与机制一致性
+
+- 打开 `docs/CLAIMS_AUDIT.md`，对本轮新增条目（前端产物一致性、3D 开关、CSRF、限流）逐条确认或反驳
+- CI 的 `npm run build && git diff --exit-code web` 是否真的能抓住"源码改了产物没更新"
+- Docker 多阶段构建是否仍然"迁移后启动"、非 root、healthcheck 有效
+
+
+### 附：CLAIMS_AUDIT 的「强制」条目
 
 打开 `docs/CLAIMS_AUDIT.md`。对标记为 **强制** 的每一条（C01–C13、C15–C19、C22、C23、C25），做两件事：
 

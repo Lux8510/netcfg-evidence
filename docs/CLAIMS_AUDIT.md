@@ -78,6 +78,11 @@
 | 新增：审计按设备聚合 | — | **强制** | `/api/devices/{id}/audit` + 时间线 | `tests/test_auth.py` |
 | 新增：并排 diff 标出增删 | — | **强制** | LCS 行级对比，E2E 断言两端原文 | `tests/test_e2e_ui.py` |
 | 新增：前端产物与源码一致 | — | **强制** | CI 重新构建后 `git diff --exit-code web` | `.github/workflows/ci.yml` |
+| 新增：会话令牌哈希存储 | — | **强制** | Cookie 放随机 token，库中只存 SHA-256 | `engine/auth.py` |
+| 新增：Cookie HttpOnly + SameSite | — | **强制** | 登录响应显式设置 | `tests/test_auth.py` |
+| 新增：跨站请求伪造（CSRF）防护 | — | **部分** | 仅依赖 SameSite=Lax，**没有显式 CSRF token** | 本轮审查目标 |
+| 新增：登录失败限流 | — | **未实现** | 无速率限制、无锁定策略 | 已知缺口 |
+| 新增：请求体 actor 不可伪造 | — | **强制** | 身份取会话，actor 字段被忽略 | `tests/test_auth.py` |
 | 新增：3D 在低性能/减少动效时关闭 | — | **部分** | `<900px` 或 `prefers-reduced-motion` 时懒加载不启用，未做帧率测量 | `frontend/src/App.tsx` |
 | B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
 | UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
