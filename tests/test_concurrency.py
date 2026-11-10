@@ -100,8 +100,12 @@ def test_concurrent_identical_imports_keep_one_version(server):
 def test_concurrent_baseline_switch_keeps_one_active(server):
     base, token = server
     device_id = create_device(server, "r1")
-    first = import_config(server, device_id, BASELINE, "a").json()["data"]["id"]
-    second = import_config(server, device_id, BASELINE.replace("hostname r1", "hostname r1b"), "b").json()["data"]["id"]
+    imported = import_config(server, device_id, BASELINE, "a")
+    assert imported.status_code == 201, imported.text
+    first = imported.json()["data"]["id"]
+    imported = import_config(server, device_id, BASELINE.replace("hostname r1", "hostname r1b"), "b")
+    assert imported.status_code == 201, imported.text
+    second = imported.json()["data"]["id"]
 
     def activate(version_id: str) -> int:
         with client(token) as http:
