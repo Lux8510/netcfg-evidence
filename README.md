@@ -2,32 +2,66 @@
 
 **把网络设备配置当作有版本的证据：任何一条判定都能指回具体的配置行、规则来源和审批记录。**
 
-当前进度：W1–W2 —— 解析器 + 漂移检测 + 持久化 API + 4 条确定性规则 + 三值判定 + 变更单审批 + 解释层 + 三套评测 + 网页工作台。
+[![CI](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml/badge.svg)](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml)
+![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB)
+![React 19](https://img.shields.io/badge/react-19-61DAFB)
+![tests 182](https://img.shields.io/badge/tests-182-3ECF8E)
 
-- 不连接设备、不下发配置、不仿真全网转发
-- 解析器只覆盖**明确声明**的 FRR 语法子集；除少量显式忽略的配置块（如 `line vty`）外，未知行逐条记录，不静默丢弃
-- 每个解析结果都带源文件行号，供后续 Finding 引用
+判定由确定性代码完成，模型只能解释；变更必须由人审批，系统从不连接设备、不下发配置、不做转发仿真。
 
-## 快速开始
+![工作台](docs/ui-dashboard.png)
 
-需要 Python 3.12。
+**3 分钟演示：[视频](docs/demo.webm) · [脚本](docs/DEMO.md) · [架构](docs/ARCHITECTURE.md)**
+
+## 3 条命令跑起来
+
+需要 Python 3.12；前端产物已提交，运行不需要 Node。
 
 ```bash
 python3.12 -m venv .venv
 .venv/bin/python -m pip install -r requirements-dev.txt
-.venv/bin/python -m pytest -q
+.venv/bin/python -m uvicorn api.main:app --port 8000
 ```
 
-## 当前状态
+打开 http://127.0.0.1:8000/ ，第一次先建账号：
 
-- 单元/接口测试 **182 项**（含 8 条 hypothesis 属性测试）
-- 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
-- 浏览器端到端 **12 项**（真实 Chrome + 真实服务进程）
-- 评测 **20/20**，precision / recall 1.0000
-- 规则 4 条本机 + 3 条链路，三值判定 + not_applicable
-- 变更单状态机 + 强制人工审批 + 追加式审计事件
-- 解释层：Mock 或 OpenAI 兼容真实模型 + 引用校验，解释不能改变判定
-- 覆盖设备 / 版本 / 基线 / 漂移 / 规则 / Findings 的 HTTP API
+```bash
+.venv/bin/python scripts/create_user.py --username 你的名字 --role admin
+```
+
+## 它解决什么
+
+网络排障和变更里，最贵的不是"找出问题"，而是**事后无法证明**：这条判定依据哪一行？谁批准的？改之前长什么样？
+
+- **版本不可变**：配置只追加，数据库触发器拒绝 UPDATE/DELETE
+- **判定有证据**：每条 Finding 带配置行号 + 规则 ID；未解析的 OSPF 行一律 `undetermined`，不会被当成通过
+- **模型只能解释**：引用校验不过就丢弃，模型不能改变 Finding
+- **变更要人批**：审批人来自登录会话；状态机 + 唯一约束 + 追加式审计
+- **漂移可豁免**：绑定当前值与路径、带到期时间，到期自动恢复
+
+## 关键数字
+
+| 项 | 数量 |
+| --- | --- |
+| 单元/接口测试 | **182**（含 8 条 hypothesis 属性测试） |
+| 浏览器端到端 | **12**（真实 Chrome + 真实服务进程） |
+| 真实并发 | **3**（独立进程 + 多线程 HTTP） |
+| 评测 | 漂移 20/20 · 规则 15/15 · 解释 17/17 |
+| 规则 | 4 条本机 + 3 条链路 |
+| 压测 | 300 请求 / 20 并发：887 rps，p95 34ms（SQLite WAL） |
+
+## 目录
+
+```text
+api/                 FastAPI 路由
+domain/netcfg/       解析、漂移、规则、审批、豁免、解释
+engine/              数据库、迁移守卫、认证、可观测性
+migrations/          Alembic 迁移
+frontend/            React + Tailwind + Motion + R3F 源码
+web/                 前端构建产物（已提交）
+docs/                架构、演示、评测、承诺对照
+tests/               单元/接口/并发/属性/浏览器测试
+```
 
 ## 容器部署
 
@@ -393,39 +427,8 @@ make eval    # 漂移 20 例 + 规则判定 15 例 + 解释校验 17 例
 
 ## 承诺 vs 机制
 
-所有对外承诺逐条对照代码与测试，见 [docs/CLAIMS_AUDIT.md](docs/CLAIMS_AUDIT.md)：
-11 条由机制强制、4 条部分强制、0 条纯文案；发现的 3 处措辞过宽已收窄。
-
-## 目录
-
-```text
-domain/netcfg/parser.py    FRR 配置解析
-domain/netcfg/drift.py     结构化漂移检测
-domain/netcfg/service.py   业务逻辑：导入、基线、漂移、序列化
-engine/db.py               数据库连接与会话
-engine/models.py           设备、配置版本、基线、漂移报告
-domain/netcfg/rules.py     4 条确定性规则与三值判定
-api/main.py                FastAPI 路由
-evals/build_cases.py       生成 20 个漂移案例
-evals/build_rule_cases.py  生成 15 个规则判定案例
-evals/run_eval.py          漂移评测（precision/recall）
-evals/run_rules_eval.py    规则状态评测
-evals/run_explain_eval.py  解释引用校验评测
-samples/frr/               真实实验配置样本（脱敏）
-tests/                     解析、漂移、规则、API、评测与审查回归测试
-tests/test_e2e_ui.py       浏览器端到端（真实服务进程 + Chrome）
-tests/test_properties.py   hypothesis 属性测试
-scripts/compare_models.py  多模型解释对比
-scripts/load.py            并发压测
-scripts/create_user.py     本地账号
-tests/test_concurrency.py  真实并发（多线程 HTTP）
-migrations/                Alembic 迁移
-DESIGN.md                  完整设计草案
-docs/CLAIMS_AUDIT.md      承诺与机制对照表
-docs/model-comparison.md  多模型解释对比
-frontend/                 React + Tailwind + Motion + R3F 源码
-web/                      前端构建产物
-```
+所有对外承诺逐条对照代码与测试，见 [docs/CLAIMS_AUDIT.md](docs/CLAIMS_AUDIT.md)。
+每条标注「强制 / 部分 / 未实现」，包括 CSRF、登录限流、前端竞态与焦点管理这些容易被说大的地方。
 
 ## 边界
 
