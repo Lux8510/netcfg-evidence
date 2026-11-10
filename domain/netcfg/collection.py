@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -31,6 +32,15 @@ def set_target(db: Session, device_id: str, *, host: str, port: int, username: s
     host, username = host.strip(), username.strip()
     if not host:
         raise ServiceError("TARGET_INVALID", "主机地址不能为空", 422)
+    allowed_hosts = {item.strip() for item in os.environ.get("NETCFG_SSH_ALLOWED_HOSTS", "").split(",") if item.strip()}
+    if allowed_hosts and host not in allowed_hosts:
+        raise ServiceError("TARGET_HOST_NOT_ALLOWED", "该主机不在服务端允许的采集范围内", 422)
+    if credential_ref:
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,60}", credential_ref):
+            raise ServiceError("TARGET_INVALID", "凭据引用必须是环境变量名（大写字母、数字、下划线）", 422)
+        allowed_refs = {item.strip() for item in os.environ.get("NETCFG_SSH_ALLOWED_CREDENTIAL_REFS", "").split(",") if item.strip()}
+        if allowed_refs and credential_ref not in allowed_refs:
+            raise ServiceError("TARGET_CREDENTIAL_NOT_ALLOWED", "该凭据引用未在服务端允许列表中", 422)
     if not 1 <= port <= 65535:
         raise ServiceError("TARGET_INVALID", "端口需在 1–65535", 422)
     if not username:
@@ -105,6 +115,8 @@ def collect_device(db: Session, device_id: str, label: str,
                                status="failed", error_code=exc.code, error_message=exc.message,
                                commands=[], started_at=started, finished_at=_now()))
         db.flush()
+        # Commit the failed event before the API turns this into a 502/rollback.
+        db.commit()
         raise ServiceError(exc.code, exc.message, 502) from exc
     version = _store_version(db, device_id, label, result["config_text"])
     event = CollectionEvent(
@@ -136,8 +148,10 @@ def start_change_run(db: Session, device_id: str, note: str, actor: str,
     note = note.strip()
     if not 10 <= len(note) <= 1000:
         raise ServiceError("INVALID_NOTE", "变更说明需要 10–1000 个字符", 422)
+    target = db.get(DeviceTarget, device_id)
     version, _ = collect_device(db, device_id, f"{label}-{_now().strftime('%Y%m%dT%H%M%SZ')}", collector)
     run = ChangeRun(device_id=device_id, note=note, created_by=actor, status="open",
+                    target_host=target.host, target_port=target.port, target_username=target.username,
                     before_version_id=version.id)
     db.add(run)
     db.flush()
@@ -146,21 +160,43 @@ def start_change_run(db: Session, device_id: str, note: str, actor: str,
 
 def complete_change_run(db: Session, run_id: str, note: str,
                         collector: Collector | None = None) -> ChangeRun:
+    from sqlalchemy import update
+
     run = db.get(ChangeRun, run_id)
     if run is None:
         raise ServiceError("CHANGE_RUN_NOT_FOUND", "变更核对不存在", 404)
-    if run.status != "open":
-        raise ServiceError("CHANGE_RUN_CLOSED", "该变更核对已经结束", 409)
     note = note.strip()
     if not note:
         raise ServiceError("INVALID_NOTE", "请填写核对说明", 422)
+
+    # Compare-and-set: only one caller may turn open -> completing.
+    claimed = db.execute(update(ChangeRun)
+                         .where(ChangeRun.id == run_id, ChangeRun.status == "open")
+                         .values(status="completing"))
+    if claimed.rowcount != 1:
+        db.expire_all()
+        current = db.get(ChangeRun, run_id)
+        if current is not None and current.status == "completed":
+            return current
+        raise ServiceError("CHANGE_RUN_CLOSED", "该变更核对已经结束或正在核对", 409)
+    db.flush()
+
+    target = db.get(DeviceTarget, run.device_id)
+    if target is None or (target.host, target.port, target.username) != (
+            run.target_host, run.target_port, run.target_username):
+        run.status = "failed"
+        run.error_code, run.error_message = "TARGET_CHANGED", "采集目标在变更窗口期间发生变化，拒绝核对"
+        run.completed_at = _now()
+        db.commit()
+        raise ServiceError("TARGET_CHANGED", run.error_message, 409)
+
     try:
         version, _ = collect_device(db, run.device_id, "after", collector)
     except ServiceError as exc:
         run.status = "failed"
         run.error_code, run.error_message = exc.code, exc.message
         run.completed_at = _now()
-        db.flush()
+        db.commit()
         raise
     before = get_version(db, run.before_version_id)
     report = diff_configs(parse_frr_config(before.raw_text, before.source_name),

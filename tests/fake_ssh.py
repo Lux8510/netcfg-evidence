@@ -23,6 +23,7 @@ class FakeDeviceState:
             "show ip interface brief": "Interface    Status  Protocol\neth2         up      up\n",
         }
         self.commands: list[str] = []
+        self.delay = 0.0
         self.stop = False
         self.key = paramiko.RSAKey.generate(2048)
 
@@ -49,7 +50,7 @@ class _Server(paramiko.ServerInterface):
         self.state.commands.append(text)
         output = self.state.outputs.get(text)
         def respond():
-            time.sleep(0.05)
+            time.sleep(self.state.delay or 0.05)
             try:
                 if output is None:
                     channel.send_stderr(b"% Invalid input detected at '^' marker.\n")

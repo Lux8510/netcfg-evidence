@@ -34,7 +34,7 @@ def free_port() -> int:
 def server(tmp_path):
     port = free_port()
     env = {**os.environ, "NETCFG_DATABASE_URL": f"sqlite:///{tmp_path / 'e2e.db'}",
-           "EXPLAIN_PROVIDER": "mock", "NETCFG_TEST_SSH_PASSWORD": "e2e-ssh-secret"}
+           "EXPLAIN_PROVIDER": "mock", "NETCFG_TEST_SSH_PASSWORD": "e2e-ssh-secret", "NETCFG_SSH_STRICT_HOST_KEY": "false"}
     subprocess.run([sys.executable, "scripts/create_user.py", "--username", E2E_USER, "--role", "admin"],
                    cwd=ROOT, env={**env, "NETCFG_USER_PASSWORD": E2E_PASSWORD}, check=True,
                    capture_output=True, text=True)
@@ -374,3 +374,32 @@ def test_ssh_change_verification_flow(page, server, fake_device):
     page.click("[data-testid=change-submit]")
     page.wait_for_selector("[data-testid=change-runs] :text('completed')")
     assert "interface.eth2.ospf.cost" in page.inner_text("[data-testid=change-runs]")
+
+
+def test_switch_device_while_collecting_discards_old_response(page, server, fake_device):
+    state, ssh_port = fake_device
+    state.password = "e2e-ssh-secret"
+    first = api_post(server, "/api/devices", {"name": "collect-a"})["id"]
+    second = api_post(server, "/api/devices", {"name": "collect-b"})["id"]
+    for device, host in ((first, "127.0.0.1"), (second, "localhost")):
+        with httpx.Client(base_url=server) as http:
+            login = http.post("/api/auth/login", json={"username": E2E_USER, "password": E2E_PASSWORD})
+            response = http.put(f"/api/devices/{device}/target", cookies=login.cookies, json={
+                "host": host, "port": ssh_port, "username": "netops",
+                "credential_ref": "NETCFG_TEST_SSH_PASSWORD"})
+            assert response.status_code == 200, response.text
+
+    def slow(route):
+        import time
+        time.sleep(1.5)
+        route.continue_()
+
+    page.route(f"**/api/devices/{first}/collect", slow)
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", first)
+    page.wait_for_function("() => document.querySelector('[data-testid=target-host]').value === '127.0.0.1'")
+    page.click("[data-testid=collect-now]")
+    page.select_option("[data-testid=device-select]", second)
+    page.wait_for_function("() => document.querySelector('[data-testid=target-host]').value === 'localhost'")
+    page.wait_for_timeout(2000)
+    assert page.input_value("[data-testid=target-host]") == "localhost"

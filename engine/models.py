@@ -244,18 +244,17 @@ def _register_guards() -> None:
 
     for name, statement in SQLITE_TRIGGERS.items():
         table = next(t for t in (AuditEvent.__table__, ConfigVersion.__table__, Finding.__table__,
-                                 Explanation.__table__, ChangeRequest.__table__)
+                                 Explanation.__table__, ChangeRequest.__table__, ChangeRun.__table__)
                      if name.startswith(t.name))
         event.listen(table, "after_create", DDL(statement).execute_if(dialect="sqlite"))
 
     for name, statement in POSTGRES_TRIGGERS.items():
         table = next(t for t in (AuditEvent.__table__, ConfigVersion.__table__, Finding.__table__,
-                                 Explanation.__table__, ChangeRequest.__table__)
+                                 Explanation.__table__, ChangeRequest.__table__, ChangeRun.__table__)
                      if name.startswith(t.name))
         event.listen(table, "after_create", DDL(statement).execute_if(dialect="postgresql"))
 
 
-_register_guards()
 
 
 class DeviceTarget(Base):
@@ -305,6 +304,9 @@ class ChangeRun(Base):
     note: Mapped[str] = mapped_column(Text, nullable=False)
     created_by: Mapped[str] = mapped_column(String(80), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    target_host: Mapped[str] = mapped_column(String(255), nullable=False, default="")
+    target_port: Mapped[int] = mapped_column(Integer, nullable=False, default=22)
+    target_username: Mapped[str] = mapped_column(String(80), nullable=False, default="")
     before_version_id: Mapped[str] = mapped_column(ForeignKey("config_versions.id"), nullable=False)
     after_version_id: Mapped[str | None] = mapped_column(ForeignKey("config_versions.id"))
     diff_items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
@@ -316,4 +318,7 @@ class ChangeRun(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
 
-    __table_args__ = (CheckConstraint("status IN ('open','completed','failed')", name="ck_change_run_status"),)
+    __table_args__ = (CheckConstraint("status IN ('open','completing','completed','failed')", name="ck_change_run_status"),)
+
+# Registered after every table exists; guards attach to after_create events.
+_register_guards()

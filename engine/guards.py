@@ -53,6 +53,26 @@ SQLITE_TRIGGERS: dict[str, str] = {
         "WHERE f.id IS NULL OR f.device_id <> NEW.device_id OR f.status <> 'violated') "
         "BEGIN SELECT RAISE(ABORT, 'change request requires violated findings of the same device'); END"
     ),
+    "change_runs_before_immutable": (
+        "CREATE TRIGGER IF NOT EXISTS change_runs_before_immutable BEFORE UPDATE ON change_runs "
+        "WHEN OLD.before_version_id IS NOT NEW.before_version_id "
+        "BEGIN SELECT RAISE(ABORT, 'change run before version is immutable'); END"
+    ),
+    "change_runs_after_immutable": (
+        "CREATE TRIGGER IF NOT EXISTS change_runs_after_immutable BEFORE UPDATE ON change_runs "
+        "WHEN OLD.after_version_id IS NOT NULL AND OLD.after_version_id IS NOT NEW.after_version_id "
+        "BEGIN SELECT RAISE(ABORT, 'change run after version is immutable'); END"
+    ),
+    "change_runs_version_device": (
+        "CREATE TRIGGER IF NOT EXISTS change_runs_version_device BEFORE INSERT ON change_runs "
+        "WHEN (SELECT device_id FROM config_versions WHERE id = NEW.before_version_id) <> NEW.device_id "
+        "BEGIN SELECT RAISE(ABORT, 'change run versions must belong to the device'); END"
+    ),
+    "change_runs_after_version_device": (
+        "CREATE TRIGGER IF NOT EXISTS change_runs_after_version_device BEFORE UPDATE ON change_runs "
+        "WHEN NEW.after_version_id IS NOT NULL AND (SELECT device_id FROM config_versions WHERE id = NEW.after_version_id) <> NEW.device_id "
+        "BEGIN SELECT RAISE(ABORT, 'change run versions must belong to the device'); END"
+    ),
     "findings_evidence_shape": (
         "CREATE TRIGGER IF NOT EXISTS findings_evidence_shape BEFORE INSERT ON findings "
         "WHEN json_valid(NEW.evidence) = 0 OR json_type(NEW.evidence) <> 'array' "
@@ -127,6 +147,51 @@ POSTGRES_TRIGGERS: dict[str, str] = {
         "FOR EACH ROW WHEN EXISTS (SELECT 1 FROM json_array_elements_text(NEW.finding_ids) AS fid "
         "LEFT JOIN findings f ON f.id = fid "
         "WHERE f.id IS NULL OR f.device_id <> NEW.device_id OR f.status <> 'violated') "
+        "EXECUTE FUNCTION prevent_mutation()"
+    ),
+    "change_runs_before_immutable": (
+        "CREATE TRIGGER IF NOT EXISTS change_runs_before_immutable BEFORE UPDATE ON change_runs "
+        "WHEN OLD.before_version_id IS NOT NEW.before_version_id "
+        "BEGIN SELECT RAISE(ABORT, 'change run before version is immutable'); END"
+    ),
+    "change_runs_after_immutable": (
+        "CREATE TRIGGER IF NOT EXISTS change_runs_after_immutable BEFORE UPDATE ON change_runs "
+        "WHEN OLD.after_version_id IS NOT NULL AND OLD.after_version_id IS NOT NEW.after_version_id "
+        "BEGIN SELECT RAISE(ABORT, 'change run after version is immutable'); END"
+    ),
+    "change_runs_version_device": (
+        "CREATE TRIGGER IF NOT EXISTS change_runs_version_device BEFORE INSERT ON change_runs "
+        "WHEN (SELECT device_id FROM config_versions WHERE id = NEW.before_version_id) <> NEW.device_id "
+        "BEGIN SELECT RAISE(ABORT, 'change run versions must belong to the device'); END"
+    ),
+    "change_runs_after_version_device": (
+        "CREATE TRIGGER IF NOT EXISTS change_runs_after_version_device BEFORE UPDATE ON change_runs "
+        "WHEN NEW.after_version_id IS NOT NULL AND (SELECT device_id FROM config_versions WHERE id = NEW.after_version_id) <> NEW.device_id "
+        "BEGIN SELECT RAISE(ABORT, 'change run versions must belong to the device'); END"
+    ),
+    "change_runs_before_immutable": (
+        "DROP TRIGGER IF EXISTS change_runs_before_immutable ON change_runs; "
+        "CREATE TRIGGER change_runs_before_immutable BEFORE UPDATE ON change_runs "
+        "FOR EACH ROW WHEN (OLD.before_version_id IS DISTINCT FROM NEW.before_version_id) "
+        "EXECUTE FUNCTION prevent_mutation()"
+    ),
+    "change_runs_after_immutable": (
+        "DROP TRIGGER IF EXISTS change_runs_after_immutable ON change_runs; "
+        "CREATE TRIGGER change_runs_after_immutable BEFORE UPDATE ON change_runs "
+        "FOR EACH ROW WHEN (OLD.after_version_id IS NOT NULL AND OLD.after_version_id IS DISTINCT FROM NEW.after_version_id) "
+        "EXECUTE FUNCTION prevent_mutation()"
+    ),
+    "change_runs_version_device": (
+        "DROP TRIGGER IF EXISTS change_runs_version_device ON change_runs; "
+        "CREATE TRIGGER change_runs_version_device BEFORE INSERT ON change_runs "
+        "FOR EACH ROW WHEN ((SELECT device_id FROM config_versions WHERE id = NEW.before_version_id) IS DISTINCT FROM NEW.device_id) "
+        "EXECUTE FUNCTION prevent_mutation()"
+    ),
+    "change_runs_after_version_device": (
+        "DROP TRIGGER IF EXISTS change_runs_after_version_device ON change_runs; "
+        "CREATE TRIGGER change_runs_after_version_device BEFORE UPDATE ON change_runs "
+        "FOR EACH ROW WHEN (NEW.after_version_id IS NOT NULL AND "
+        "(SELECT device_id FROM config_versions WHERE id = NEW.after_version_id) IS DISTINCT FROM NEW.device_id) "
         "EXECUTE FUNCTION prevent_mutation()"
     ),
     "findings_evidence_shape": (

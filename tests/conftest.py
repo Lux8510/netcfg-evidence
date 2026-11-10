@@ -5,6 +5,7 @@ from pathlib import Path
 
 # Tests must never call a real model or depend on a developer's .env.
 os.environ["EXPLAIN_PROVIDER"] = "mock"
+os.environ["NETCFG_SSH_STRICT_HOST_KEY"] = "false"
 os.environ.setdefault("NETCFG_SESSION_HOURS", "12")
 
 import pytest  # noqa: E402
@@ -62,6 +63,12 @@ def app_client(api_app):
     client = _login(app, "何深")
     yield client
     _close(client)
+
+
+@pytest.fixture()
+def app_session(api_app):
+    _, factory, _ = api_app
+    return factory
 
 
 @pytest.fixture()

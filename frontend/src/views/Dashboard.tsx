@@ -5,7 +5,7 @@ import {
   LogOut, Network, Plus, RefreshCw, ShieldCheck, Sparkles, Upload, Wallet,
 } from 'lucide-react';
 import {
-  api, type AuditRow, type ChangeRequest, type ChangeRun, type Device, type DeviceTarget, type DriftItem, type DriftReport,
+  ApiError, api, type AuditRow, type ChangeRequest, type ChangeRun, type Device, type DeviceTarget, type DriftItem, type DriftReport,
   type Exemption, type Explanation, type Finding, type Link, type RuleCheck, type User, type Version,
 } from '../lib/api';
 import { diffRows } from '../lib/diff';
@@ -107,6 +107,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
   useEffect(() => {
     // Any dialog belongs to the device that opened it.
     setDiffTarget(null); setEvidence(null); setChangeFor(null); setNoteFor(null); setExemptFor(null);
+    setChangeDialog(null);
   }, [deviceId]);
 
   const currentDevice = devices.find((device) => device.id === deviceId) ?? null;
@@ -116,7 +117,12 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
 
   async function run(label: string, task: () => Promise<void>) {
     setBusy(label);
-    try { await task(); } catch (error) { toast.push((error as Error).message, 'error'); } finally { setBusy(''); }
+    try {
+      await task();
+    } catch (error) {
+      const message = error instanceof ApiError && error.code ? `${error.message}（${error.code}）` : (error as Error).message;
+      toast.push(message, 'error');
+    } finally { setBusy(''); }
   }
 
   const createDevice = (name: string) => run('正在创建…', async () => {
@@ -197,33 +203,48 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
     toast.push(`生成 ${rows.length} 条解释`, 'ok');
   });
 
-  const saveTarget = (fields: { host: string; port: number; username: string; credential_ref: string }) =>
-    run('正在保存采集目标…', async () => {
-      const saved = await api<DeviceTarget>(`/devices/${deviceId}/target`, { method: 'PUT', body: { ...fields, enabled: true } });
+  const saveTarget = (fields: { host: string; port: number; username: string; credential_ref: string }) => {
+    const owner = deviceId;
+    return run('正在保存采集目标…', async () => {
+      const saved = await api<DeviceTarget>(`/devices/${owner}/target`, { method: 'PUT', body: { ...fields, enabled: true } });
+      if (deviceRef.current !== owner) return;
       setTarget(saved);
       toast.push('SSH 目标已保存；密码来自服务端环境变量', 'ok');
     });
+  };
 
-  const collectNow = () => run('正在通过 SSH 采集…', async () => {
-    const result = await api<{ version: Version; event: { status: string } }>(
-      `/devices/${deviceId}/collect`, { body: { label: 'manual' } });
-    await loadDeviceData(deviceId);
-    toast.push(`采集完成：${result.version.source_name}`, 'ok');
-  });
+  const collectNow = () => {
+    const owner = deviceId;
+    return run('正在通过 SSH 采集…', async () => {
+      const result = await api<{ version: Version; event: { status: string } }>(
+        `/devices/${owner}/collect`, { body: { label: 'manual' } });
+      if (deviceRef.current !== owner) return;
+      await loadDeviceData(owner);
+      toast.push(`采集完成：${result.version.source_name}`, 'ok');
+    });
+  };
 
-  const startChange = (note: string) => run('正在采集变更前快照…', async () => {
-    await api(`/devices/${deviceId}/change-runs`, { body: { note } });
-    await loadDeviceData(deviceId);
-    setChangeDialog(null);
-    toast.push('变更窗口已开始，变更后点击「完成核对」', 'ok');
-  });
+  const startChange = (note: string) => {
+    const owner = deviceId;
+    return run('正在采集变更前快照…', async () => {
+      await api(`/devices/${owner}/change-runs`, { body: { note } });
+      if (deviceRef.current !== owner) return;
+      await loadDeviceData(owner);
+      setChangeDialog(null);
+      toast.push('变更窗口已开始，变更后点击「完成核对」', 'ok');
+    });
+  };
 
-  const completeChange = (runId: string, note: string) => run('正在采集变更后快照…', async () => {
-    await api(`/change-runs/${runId}/complete`, { body: { note } });
-    await loadDeviceData(deviceId);
-    setChangeDialog(null);
-    toast.push('变更核对完成', 'ok');
-  });
+  const completeChange = (runId: string, note: string) => {
+    const owner = deviceId;
+    return run('正在采集变更后快照…', async () => {
+      await api(`/change-runs/${runId}/complete`, { body: { note } });
+      if (deviceRef.current !== owner) return;
+      await loadDeviceData(owner);
+      setChangeDialog(null);
+      toast.push('变更核对完成', 'ok');
+    });
+  };
 
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
@@ -271,7 +292,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
         </Reveal>
 
         <Reveal className="col-span-12" delay={0.14}>
-          <ChangeVerifyCard target={target} runs={changeRuns} busy={busy}
+          <ChangeVerifyCard key={deviceId} target={target} runs={changeRuns} busy={busy}
                             onSaveTarget={saveTarget} onCollect={collectNow}
                             onStart={() => setChangeDialog({ mode: 'start' })}
                             onComplete={(runId) => setChangeDialog({ mode: 'complete', runId })} />

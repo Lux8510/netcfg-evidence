@@ -93,6 +93,16 @@
 | 新增：跨设备规则可被解释校验 | — | **强制** | 已知规则集合包含 R005–R007 | `tests/test_explain.py` |
 | 新增：否定式免责声明不算过度声明 | — | **强制** | 先剥离否定从句再匹配 overclaim | `evals/explain_cases.json`（17 例） |
 | 新增：只读采集只执行白名单命令 | — | **强制** | `ALLOWED_COMMANDS` + 客户端拒绝未知命令；无 shell | `tests/test_ssh_collection.py`、`tests/test_claims.py` |
+| 新增：设备密码不出现在 repr/日志/接口 | — | **强制** | `Target.password` repr=False，接口只回变量名 | `tests/test_ssh_collection.py` |
+| 新增：连接异常也关闭客户端 | — | **强制** | 外层 try/finally 覆盖 connect | `tests/test_ssh_collection.py` |
+| 新增：采集有总时长上限 | — | **强制** | 单调时钟 deadline，读输出也受约束 | `tests/test_ssh_collection.py` |
+| 新增：默认严格校验主机指纹 | — | **强制** | strict 默认 true，可用环境变量关闭 | `tests/test_ssh_collection.py` |
+| 新增：主机与凭据引用白名单 | — | **强制** | `NETCFG_SSH_ALLOWED_HOSTS` / `..._CREDENTIAL_REFS` | `tests/test_ssh_collection.py` |
+| 新增：变更窗口版本不可改写 | — | **强制** | 触发器保护 before/after + 设备归属 | `tests/test_ssh_collection.py` |
+| 新增：完成核对只允许一次 | — | **强制** | CAS open→completing；已完成请求返回既有结果 | `tests/test_ssh_collection.py` |
+| 新增：完成失败会持久化 | — | **强制** | 失败窗口与事件提交后再返回 502 | `tests/test_ssh_collection.py` |
+| 新增：切换设备清空 SSH 草稿与弹窗 | — | **强制** | 卡片按 deviceId 重新挂载，切换关闭 changeDialog | `tests/test_e2e_ui.py` |
+| 新增：采集中的旧响应不写回 | — | **强制** | 设备身份校验后再刷新 | `tests/test_e2e_ui.py` |
 | 新增：采集器不引入任意命令执行 | — | **强制** | 无 subprocess / os.system / shell；AST 测试 | `tests/test_claims.py` |
 | 新增：SSH 测试在 CI 默认套件 | — | **强制** | 无 marker；CI 跑 `pytest` | `.github/workflows/ci.yml` |
 | 新增：采集失败不生成版本 | — | **强制** | 失败写 `collection_events`，版本表不变 | `tests/test_ssh_collection.py` |

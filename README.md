@@ -72,8 +72,14 @@ tests/               单元/接口/并发/属性/浏览器测试
 
 ```bash
 export NETCFG_SSH_PASSWORD='...'
-# 可选：NETCFG_SSH_KEY_PATH、NETCFG_SSH_TIMEOUT、NETCFG_SSH_STRICT_HOST_KEY=true
+# 默认严格校验主机指纹；首次接入请登记设备指纹，或显式关闭（不建议生产）
+# export NETCFG_SSH_STRICT_HOST_KEY=false
+# export NETCFG_SSH_KNOWN_HOSTS=/path/to/known_hosts
+# 可选：NETCFG_SSH_TIMEOUT、NETCFG_SSH_KEY_PATH
 ```
+
+生产环境建议再加两道白名单：`NETCFG_SSH_ALLOWED_HOSTS`（逗号分隔的主机）与
+`NETCFG_SSH_ALLOWED_CREDENTIAL_REFS`（允许使用的凭据变量名）；超出范围的请求返回 422。
 
 2. 配置设备目标（`PUT /api/devices/{id}/target`），或在工作台「SSH 采集与变更核对」卡片填写。
 
@@ -91,8 +97,9 @@ export NETCFG_SSH_PASSWORD='...'
 | POST | `/api/change-runs/{id}/complete` | 采集变更后快照并核对 |
 | GET | `/api/devices/{id}/change-runs` | 变更核对历史 |
 
-边界：SSH 采集只对**假设备**做过自动化验证，没有在真机跑过；默认不校验主机指纹（可用 `NETCFG_SSH_STRICT_HOST_KEY=true` 开启）；
-分页/提示符处理只覆盖常见情况，真机需要按厂商核对。
+边界：SSH 采集只对**假设备**做过自动化验证，没有在真机跑过；分页/提示符处理只覆盖常见情况，真机需要按厂商核对。
+变更窗口会保存目标快照，窗口期间目标变化会拒绝核对（`TARGET_CHANGED`）；
+采集失败会持久化为 `failed` 事件与窗口，且不生成版本。
 
 ## 容器部署
 
