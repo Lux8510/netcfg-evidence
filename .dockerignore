@@ -15,3 +15,6 @@ test-results
 docs
 samples
 evals
+
+frontend/node_modules
+frontend/dist

@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #0a0c10;
+  --color-surface: #0f1218;
+  --color-line: #232833;
+  --color-muted: #8b93a4;
+  --color-accent: #6aa6ff;
+  --color-ok: #3ecf8e;
+  --color-warn: #e0a45c;
+  --color-danger: #e06c62;
+  --font-sans: "Inter", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@layer base {
+  html { color-scheme: dark; }
+  body {
+    @apply bg-ink text-slate-200 antialiased;
+    background-image:
+      radial-gradient(60rem 40rem at 12% -10%, rgba(106,166,255,.10), transparent 60%),
+      radial-gradient(50rem 36rem at 100% 0%, rgba(62,207,142,.06), transparent 55%),
+      radial-gradient(40rem 30rem at 50% 110%, rgba(224,164,92,.05), transparent 60%);
+    background-attachment: fixed;
+  }
+  ::selection { background: rgba(106,166,255,.28); }
+  * { scrollbar-width: thin; scrollbar-color: #2a3040 transparent; }
+}
+
+@layer components {
+  .glass {
+    @apply relative rounded-2xl border border-[var(--color-line)] bg-white/[0.03] backdrop-blur-xl;
+    box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 24px 60px -40px rgba(0,0,0,.9);
+  }
+  .glass-hover { @apply transition-colors duration-300 hover:border-white/15 hover:bg-white/[0.045]; }
+  .noise::after {
+    content: "";
+    position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: .35;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='120' height='120' filter='url(%23n)' opacity='.05'/%3E%3C/svg%3E");
+  }
+  .hairline { @apply border border-white/10; }
+  .label { @apply text-[11px] uppercase tracking-[0.14em] text-muted; }
+  .mono { font-family: var(--font-mono); }
+}

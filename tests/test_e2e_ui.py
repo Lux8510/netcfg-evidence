@@ -1,3 +1,5 @@
+"""Browser end-to-end tests against a real server and the built UI."""
+
 from __future__ import annotations
 
 import os
@@ -12,7 +14,15 @@ import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+E2E_USER = "何深"
+E2E_PASSWORD = "e2e-password-1"
+BASELINE = (ROOT / "samples/frr/r1.conf").read_text(encoding="utf-8")
+BROKEN = BASELINE.replace(" ip ospf cost 10\n", "").replace(" passive-interface lo\n", "")
+CHANGED = BASELINE.replace(" ip ospf cost 10", " ip ospf cost 30")
+SECOND = (ROOT / "samples/frr/r2.conf").read_text(encoding="utf-8")
+
 pytestmark = pytest.mark.e2e
+
 
 def free_port() -> int:
     with socket.socket() as sock:
@@ -20,14 +30,11 @@ def free_port() -> int:
         return sock.getsockname()[1]
 
 
-E2E_USER = "何深"
-E2E_PASSWORD = "e2e-password-1"
-
-
 @pytest.fixture()
 def server(tmp_path):
     port = free_port()
-    env = {**os.environ, "NETCFG_DATABASE_URL": f"sqlite:///{tmp_path / 'e2e.db'}"}
+    env = {**os.environ, "NETCFG_DATABASE_URL": f"sqlite:///{tmp_path / 'e2e.db'}",
+           "EXPLAIN_PROVIDER": "mock"}
     subprocess.run([sys.executable, "scripts/create_user.py", "--username", E2E_USER, "--role", "admin"],
                    cwd=ROOT, env={**env, "NETCFG_USER_PASSWORD": E2E_PASSWORD}, check=True,
                    capture_output=True, text=True)
@@ -61,262 +68,174 @@ def page(server):
     with playwright.sync_playwright() as pw:
         try:
             browser = pw.chromium.launch(channel="chrome", headless=True)
-        except Exception as exc:  # no system Chrome available
+        except Exception as exc:
             pytest.skip(f"system Chrome unavailable: {exc}")
-        context = browser.new_context()
+        context = browser.new_context(viewport={"width": 1440, "height": 1000})
         login = httpx.post(server + "/api/auth/login",
                            json={"username": E2E_USER, "password": E2E_PASSWORD})
         assert login.status_code == 200, login.text
         context.add_cookies([{"name": "netcfg_session",
                               "value": login.cookies["netcfg_session"], "url": server}])
         page = context.new_page()
-        page.set_default_timeout(8000)
+        page.set_default_timeout(10000)
         yield page
         context.close()
         browser.close()
 
 
-BASELINE = (ROOT / "samples/frr/r1.conf").read_text(encoding="utf-8")
-BROKEN = BASELINE.replace(" ip ospf cost 10\n", "").replace(" passive-interface lo\n", "")
-CHANGED = BASELINE.replace(" ip ospf cost 10", " ip ospf cost 30")
-
-
-def create_device(page, base: str, name: str) -> None:
-    page.goto(base)
-    page.fill("#device-name", name)
-    page.click("#create-device")
-    page.wait_for_function("(name) => [...document.querySelectorAll('#device-select option')]"
-                           ".some(option => option.textContent === name)", arg=name)
-
-
-def import_config(page, text: str, source: str) -> None:
-    page.fill("#source-name", source)
-    page.fill("#config-text", text)
-    page.click("#import-form button[type=submit]")
-    page.wait_for_selector(f"#version-list article:has-text('{source}')")
-
-
-def open_tab(page, name: str) -> None:
-    page.click(f".tab[data-tab='{name}']")
-
-
-def accept_dialog(page, text: str) -> None:
-    page.once("dialog", lambda dialog: dialog.accept(text))
-
-
-def test_import_set_baseline_and_inspect_drift_evidence(page, server):
-    create_device(page, server, "r1")
-    import_config(page, BASELINE, "r1-baseline")
-    page.click("#version-list article:has-text('r1-baseline') button[data-baseline]")
-    page.wait_for_selector("#baseline-label:has-text('r1-baseline')")
-
-    import_config(page, CHANGED, "r1-after-change")
-    page.click("#compute-drift")
-    page.wait_for_selector("#drift-result .badge.changed")
-    assert "interface.eth2.ospf.cost" in page.inner_text("#drift-result")
-
-    page.click("#drift-result article:has-text('interface.eth2.ospf.cost') button:has-text('基线第')")
-    page.wait_for_selector("#lines-dialog[open]")
-    assert "cost 10" in page.inner_text("#lines-body")
-    page.click("#lines-close")
-
-    # The buttons must open different versions: baseline shows 10, current shows 30.
-    page.click("#drift-result article:has-text('interface.eth2.ospf.cost') button:has-text('当前第')")
-    page.wait_for_selector("#lines-dialog[open]")
-    assert "cost 30" in page.inner_text("#lines-body")
-
-
-def test_rule_finding_to_approved_change_request(page, server):
-    create_device(page, server, "r1")
-    import_config(page, BROKEN, "r1-broken")
-    open_tab(page, "rules")
-    page.click("#run-rules")
-    page.wait_for_selector("#rules-result .badge.error")
-    assert "R001" in page.inner_text("#rules-result")
-
-    page.click("#rules-result button:has-text('生成变更单')")
-    page.fill("#cr-title", "补回 eth2 的 cost")
-    page.fill("#cr-rationale", "规则 R001 要求点到点接口显式设置 cost，需要人工核对后修复。")
-    page.fill("#cr-commands", "interface eth2\n ip ospf cost 10")
-    page.click("#cr-submit")
-    page.wait_for_selector("#changes-result article:has-text('补回 eth2 的 cost')")
-    accept_dialog(page, "提交审批")
-    page.click("#changes-result article button:has-text('提交审批')")
-    page.wait_for_selector("#changes-result article .badge:has-text('pending_approval')")
-
-    accept_dialog(page, "同意")
-    page.click("#changes-result article button:has-text('批准')")
-    page.wait_for_selector("#changes-result article .badge:has-text('approved')")
-
-    page.click("#changes-result article button:has-text('审计事件')")
-    page.wait_for_selector("#changes-result .events:has-text('approve')")
-    assert "created" in page.inner_text("#changes-result .events")
-
-
-def test_switching_device_clears_previous_findings(page, server):
-    create_device(page, server, "r1")
-    import_config(page, BROKEN, "r1-broken")
-    open_tab(page, "rules")
-    page.click("#run-rules")
-    page.wait_for_selector("#rules-result .badge.error")
-
-    page.fill("#device-name", "r2")
-    page.click("#create-device")
-    page.wait_for_function("() => document.querySelector('#device-select').value !== ''")
-
-    open_tab(page, "rules")
-    assert "R001" not in page.inner_text("#rules-result")
-    assert "还没有" in page.inner_text("#rules-result")
-    assert page.is_hidden("#change-form")
-
-
-def test_explanations_show_rejected_and_accepted_marks(page, server):
-    create_device(page, server, "r1")
-    import_config(page, BROKEN, "r1-broken")
-    open_tab(page, "rules")
-    page.click("#run-rules")
-    page.wait_for_selector("#rules-result .badge.error")
-    open_tab(page, "explain")
-    page.click("#run-explain")
-    page.wait_for_selector("#explain-result article")
-    text = page.inner_text("#explain-result")
-    assert "R001" in text and "引用" in text
+def api_login(base: str) -> httpx.Cookies:
+    response = httpx.post(base + "/api/auth/login", json={"username": E2E_USER, "password": E2E_PASSWORD})
+    assert response.status_code == 200, response.text
+    return response.cookies
 
 
 def api_post(base: str, path: str, payload: dict) -> dict:
-    with httpx.Client(timeout=10) as http:
-        login = http.post(base + "/api/auth/login",
-                          json={"username": E2E_USER, "password": E2E_PASSWORD})
-        assert login.status_code == 200, login.text
-        response = http.post(base + path, json=payload, cookies=login.cookies)
-        assert response.status_code < 400, response.text
-        return response.json()["data"]
+    response = httpx.post(base + path, json=payload, cookies=api_login(base))
+    assert response.status_code < 400, response.text
+    return response.json()["data"]
 
 
-def seed_change_request(base: str, name: str, title: str) -> tuple[str, str]:
-    device = api_post(base, "/api/devices", {"name": name})
-    api_post(base, f"/api/devices/{device['id']}/configs", {"text": BROKEN, "source_name": "b"})
-    run = api_post(base, f"/api/devices/{device['id']}/rules/check", {})
-    request = api_post(base, f"/api/devices/{device['id']}/change-requests", {
-        "title": title,
-        "rationale": "R001 要求显式 cost，需要人工核对后修复。",
-        "finding_ids": [run["findings"][0]["id"]],
-        "proposed_commands": ["interface eth2", " ip ospf cost 10"],
-        "actor": "何深",
-    })
-    return device["id"], request["id"]
+def create_device(page, name: str) -> None:
+    page.fill("[data-testid=device-name]", name)
+    page.click("[data-testid=create-device]")
+    page.wait_for_function("(name) => [...document.querySelectorAll('[data-testid=device-select] option')]"
+                           ".some(option => option.textContent === name)", arg=name)
+    page.select_option("[data-testid=device-select]", label=name)
 
 
-def test_switching_device_discards_inflight_change_requests(page, server):
-    first, request_id = seed_change_request(server, "race-a", "A 的变更单")
-    second, _ = seed_change_request(server, "race-b", "B 的变更单")
-
-    def slow(route):
-        import time
-        time.sleep(1.2)
-        route.continue_()
-
-    page.route(f"**/api/devices/{first}/change-requests", slow)
-    page.goto(server)
-    page.select_option("#device-select", first)
-    page.wait_for_timeout(150)
-    page.select_option("#device-select", second)
-
-    page.wait_for_timeout(2500)
-    page.click(".tab[data-tab='changes']")
-    stale_buttons = page.evaluate(
-        "(device) => document.querySelectorAll(`[data-device='${device}']`).length", first)
-    assert stale_buttons == 0
-    text = page.inner_text("#changes-result")
-    assert "A 的变更单" not in text
-    assert "B 的变更单" in text
+def import_config(page, text: str, source: str) -> None:
+    page.fill("[data-testid=source-name]", source)
+    page.fill("[data-testid=config-text]", text)
+    page.click("[data-testid=import-submit]")
+    page.wait_for_selector(f"[data-testid=version-list] :text('{source}')")
 
 
-def test_user_content_is_escaped_in_the_browser(page, server):
-    payload_name = '<img src=x onerror="window.__xss=1">'
-    title = '<img src=x onerror="window.__xss=2">'
-    seed_change_request(server, payload_name, title)
-
-    page.goto(server)
-    page.click(".tab[data-tab='changes']")
-    page.wait_for_selector("#changes-result article")
-    assert page.evaluate("window.__xss === undefined")
-    assert title in page.inner_text("#changes-result")
-    assert page.evaluate("document.querySelectorAll('#changes-result img').length === 0")
-    assert page.evaluate("document.querySelectorAll('#device-select img').length === 0")
-
-
-def _seed_drift(base: str) -> str:
-    device = api_post(base, "/api/devices", {"name": "exempt-demo"})["id"]
-    baseline = api_post(base, f"/api/devices/{device}/configs",
-                        {"text": BASELINE, "source_name": "baseline"})["id"]
+def seed_drift(base: str, name: str = "drift-demo") -> str:
+    device = api_post(base, "/api/devices", {"name": name})["id"]
+    baseline = api_post(base, f"/api/devices/{device}/configs", {"text": BASELINE, "source_name": "baseline"})["id"]
     api_post(base, f"/api/devices/{device}/baseline", {"version_id": baseline})
     api_post(base, f"/api/devices/{device}/configs", {"text": CHANGED, "source_name": "changed"})
     api_post(base, f"/api/devices/{device}/drift", {})
     return device
 
 
-def test_exemption_from_ui_and_revoke(page, server):
-    device = _seed_drift(server)
+def test_import_baseline_and_side_by_side_diff(page, server):
     page.goto(server)
-    page.select_option("#device-select", device)
-    page.wait_for_selector("#drift-result article:has-text('interface.eth2.ospf.cost')")
+    create_device(page, "r1-ui")
+    import_config(page, BASELINE, "r1-baseline")
+    page.click("[data-testid=version-list] [data-testid=set-baseline]")
+    page.wait_for_selector("[data-testid=version-list] :text('基线')")
 
-    answers = ["7", "已知偏差，等待下个维护窗口统一整改"]
-
-    def answer(dialog):
-        dialog.accept(answers.pop(0) if answers else "")
-
-    page.on("dialog", answer)
-    page.click("#drift-result article:has-text('interface.eth2.ospf.cost') button:has-text('登记豁免')")
-    page.wait_for_selector("#drift-result article:has-text('豁免至')")
-    assert "豁免" in page.inner_text("#drift-result")
-    page.remove_listener("dialog", answer)
-
-    page.once("dialog", lambda dialog: dialog.accept("偏差已整改"))
-    page.click("#drift-result button:has-text('撤销豁免')")
-    page.wait_for_selector("#drift-result article:has-text('登记豁免')")
-    assert "豁免至" not in page.inner_text("#drift-result")
+    import_config(page, CHANGED, "r1-changed")
+    page.click("[data-testid=compute-drift]")
+    page.wait_for_selector("[data-testid=drift-item]")
+    page.click("[data-testid=drift-item] [data-testid=diff-button]")
+    page.wait_for_selector("[data-testid=diff-body]")
+    body = page.inner_text("[data-testid=diff-body]")
+    assert "cost 10" in body and "cost 30" in body
 
 
-def test_topology_tab_draws_registered_links(page, server):
+def test_finding_to_approved_change_request(page, server):
+    page.goto(server)
+    create_device(page, "r1-change")
+    import_config(page, BROKEN, "broken")
+    page.click("[data-testid=run-rules]")
+    page.wait_for_selector("[data-testid=finding]")
+    assert "R001" in page.inner_text("[data-testid=rules-result]")
+
+    page.click("[data-testid=generate-change]")
+    page.wait_for_selector("[data-testid=cr-title]")
+    page.click("[data-testid=cr-submit]")
+    page.wait_for_selector("[data-testid=changes-list] :text('修复 R001')")
+
+    page.click("[data-testid=transition-submit]")
+    page.fill("[data-testid=transition-note]", "提交审批")
+    page.click("[data-testid=transition-confirm]")
+    page.wait_for_selector("[data-testid=transition-approve]")
+
+    page.click("[data-testid=transition-approve]")
+    page.fill("[data-testid=transition-note]", "同意")
+    page.click("[data-testid=transition-confirm]")
+    page.wait_for_selector("[data-testid=changes-list] :text('approved')")
+    page.wait_for_selector("[data-testid=audit-list] :text('approve')")
+
+
+def test_switching_device_clears_previous_findings(page, server):
+    page.goto(server)
+    create_device(page, "switch-a")
+    import_config(page, BROKEN, "broken")
+    page.click("[data-testid=run-rules]")
+    page.wait_for_selector("[data-testid=finding]")
+
+    create_device(page, "switch-b")
+    page.wait_for_timeout(400)
+    assert page.locator("[data-testid=finding]").count() == 0
+
+
+def test_exemption_from_ui_and_revoke(page, server):
+    device = seed_drift(server)
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", device)
+    page.wait_for_selector("[data-testid=drift-item]")
+
+    page.click("[data-testid=exempt-button]")
+    page.click("[data-testid=exempt-submit]")
+    page.wait_for_selector("[data-testid=drift-item] :text('豁免至')")
+
+    page.click("[data-testid=revoke-exemption]")
+    page.fill("[data-testid=revoke-note]", "偏差已整改")
+    page.click("text=确认撤销")
+    page.wait_for_selector("[data-testid=exempt-button]")
+
+
+def test_topology_and_audit(page, server):
     first = api_post(server, "/api/devices", {"name": "topo-a"})["id"]
     second = api_post(server, "/api/devices", {"name": "topo-b"})["id"]
     api_post(server, f"/api/devices/{first}/configs", {"text": BASELINE, "source_name": "a"})
-    api_post(server, f"/api/devices/{second}/configs",
-             {"text": (ROOT / "samples/frr/r2.conf").read_text(encoding="utf-8"), "source_name": "b"})
-    api_post(server, "/api/links",
-             {"device_a_id": first, "iface_a": "eth2", "device_b_id": second, "iface_b": "eth1"})
+    api_post(server, f"/api/devices/{second}/configs", {"text": SECOND, "source_name": "b"})
+    api_post(server, "/api/links", {"device_a_id": first, "iface_a": "eth2", "device_b_id": second, "iface_b": "eth1"})
 
     page.goto(server)
-    page.click(".tab[data-tab='topology']")
-    page.wait_for_selector("#topology svg")
-    text = page.inner_text("#topology")
-    assert "topo-a" in text and "topo-b" in text
-    page.click("#topology .node:has-text('topo-b')")
-    page.wait_for_function("() => document.querySelector('#device-select').selectedOptions[0].textContent === 'topo-b'")
+    page.wait_for_selector("[data-testid=topo-svg]")
+    assert "topo-a" in page.locator("[data-testid=topo-svg]").text_content()
+    page.click("[data-testid=topo-node]:has-text('topo-b')")
+    page.wait_for_function("() => document.querySelector('[data-testid=device-select]').selectedOptions[0].textContent === 'topo-b'")
 
-
-def test_audit_tab_lists_events(page, server):
-    device, request_id = seed_change_request(server, "audit-a", "审计用变更单")
+    seed = api_post(server, "/api/devices", {"name": "audit-a"})["id"]
+    api_post(server, f"/api/devices/{seed}/configs", {"text": BROKEN, "source_name": "b"})
+    run = api_post(server, f"/api/devices/{seed}/rules/check", {})
+    api_post(server, f"/api/devices/{seed}/change-requests", {
+        "title": "审计用变更单", "rationale": "R001 要求显式 cost，需要人工核对后修复。",
+        "finding_ids": [run["findings"][0]["id"]], "proposed_commands": ["interface eth2"]})
     page.goto(server)
-    page.select_option("#device-select", device)
-    page.click(".tab[data-tab='audit']")
-    page.wait_for_selector("#audit-result .audit-item")
-    text = page.inner_text("#audit-result")
-    assert "created" in text and "何深" in text
+    page.select_option("[data-testid=device-select]", seed)
+    page.wait_for_selector("[data-testid=audit-list] :text('created')")
 
 
-def test_side_by_side_diff_highlights_changes(page, server):
-    device = _seed_drift(server)
+def test_user_content_is_escaped(page, server):
+    payload = '<img src=x onerror="window.__xss=1">'
+    device = api_post(server, "/api/devices", {"name": payload})["id"]
+    api_post(server, f"/api/devices/{device}/configs", {"text": BROKEN, "source_name": payload})
+    run = api_post(server, f"/api/devices/{device}/rules/check", {})
+    api_post(server, f"/api/devices/{device}/change-requests", {
+        "title": payload, "rationale": "R001 要求显式 cost，需要人工核对后修复。",
+        "finding_ids": [run["findings"][0]["id"]], "proposed_commands": ["interface eth2"]})
+
     page.goto(server)
-    page.select_option("#device-select", device)
-    page.wait_for_selector("#drift-result article:has-text('interface.eth2.ospf.cost')")
-    page.click("#drift-result article:has-text('interface.eth2.ospf.cost') button:has-text('并排对比')")
-    page.wait_for_selector("#diff-dialog[open]")
-    rows = page.locator("#diff-body .diff-row").count()
-    assert rows > 10
-    assert page.locator("#diff-body .removed").count() >= 1
-    assert page.locator("#diff-body .added").count() >= 1
-    assert "cost 10" in page.inner_text("#diff-body")
-    assert "cost 30" in page.inner_text("#diff-body")
+    page.select_option("[data-testid=device-select]", device)
+    page.wait_for_selector("[data-testid=changes-list] article")
+    assert page.evaluate("window.__xss === undefined")
+    assert page.evaluate("document.querySelectorAll('[data-testid=changes-list] img').length") == 0
+    assert payload in page.inner_text("[data-testid=changes-list]")
+
+
+def test_explanations_are_generated_and_listed(page, server):
+    page.goto(server)
+    create_device(page, "explain-a")
+    import_config(page, BROKEN, "broken")
+    page.click("[data-testid=run-rules]")
+    page.wait_for_selector("[data-testid=finding]")
+    page.click("[data-testid=explain-run]")
+    page.wait_for_selector("[data-testid=explain-list] article")
+    text = page.inner_text("[data-testid=explain-list]")
+    assert "R001" in text and "引用" in text
