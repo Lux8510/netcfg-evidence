@@ -80,10 +80,16 @@
 | 新增：前端产物与源码一致 | — | **强制** | CI 重新构建后 `git diff --exit-code web` | `.github/workflows/ci.yml` |
 | 新增：会话令牌哈希存储 | — | **强制** | Cookie 放随机 token，库中只存 SHA-256 | `engine/auth.py` |
 | 新增：Cookie HttpOnly + SameSite | — | **强制** | 登录响应显式设置 | `tests/test_auth.py` |
-| 新增：跨站请求伪造（CSRF）防护 | — | **部分** | 仅依赖 SameSite=Lax，**没有显式 CSRF token** | 本轮审查目标 |
-| 新增：登录失败限流 | — | **未实现** | 无速率限制、无锁定策略 | 已知缺口 |
+| 新增：跨站请求伪造（CSRF）防护 | — | **强制（浏览器跨源）** | SameSite=Lax + 写请求 Origin/Referer 与 Host 校验；无 token，非浏览器客户端不受此约束 | `tests/test_auth.py` |
+| 新增：登录轮换会话 | — | **强制** | 登录时撤销请求携带的旧会话 | `tests/test_auth.py` |
+| 新增：登录失败限流 | — | **强制（进程内）** | 账号+IP 计数，超限 429；重启清零 | `tests/test_auth.py` |
+| 新增：弱口令拒绝 | — | **强制** | 至少 10 位，拒绝常见弱口令与单字符重复 | `tests/test_auth.py` |
 | 新增：请求体 actor 不可伪造 | — | **强制** | 身份取会话，actor 字段被忽略 | `tests/test_auth.py` |
-| 新增：3D 在低性能/减少动效时关闭 | — | **部分** | `<900px` 或 `prefers-reduced-motion` 时懒加载不启用，未做帧率测量 | `frontend/src/App.tsx` |
+| 新增：3D 在低性能/减少动效时关闭 | — | **强制** | `<900px` 或 `prefers-reduced-motion` 时懒加载不启用，并监听媒体查询变化即时卸载；未做帧率测量 | `frontend/src/App.tsx`、`tests/test_e2e_ui.py` |
+| 新增：设备切换不写回旧响应 | — | **强制** | 请求序号 + 设备身份校验，切换时清空面板与弹窗 | `tests/test_e2e_ui.py` |
+| 新增：对端证据打开对端版本 | — | **强制** | 证据按钮使用 `evidence.version_id` | `tests/test_e2e_ui.py` |
+| 新增：解释按最新运行查询 | — | **强制** | 规则与解释共用最新 `run_id` | `tests/test_e2e_ui.py` |
+| 新增：弹窗焦点与键盘操作 | — | **强制** | 初始焦点、Tab 圈定、Esc 关闭并恢复焦点；拓扑节点可回车触发 | `tests/test_e2e_ui.py` |
 | B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
 | UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
 | UI03 解释归属同一 run | — | **强制（已修）** | 解释按最新 run 查询，界面显示 run 标识 |

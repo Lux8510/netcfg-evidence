@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { X } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -102,20 +102,39 @@ export function Dialog({ open, onClose, title, children, wide }: {
   open: boolean; onClose: () => void; title: string; children: ReactNode; wide?: boolean;
 }) {
   const reduce = useReducedMotion();
+  const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
-    if (open) window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    const focusables = () => Array.from(panel?.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') ?? [])
+      .filter((node) => !node.hasAttribute('disabled'));
+    focusables()[0]?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { onClose(); return; }
+      if (event.key !== 'Tab') return;
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => { window.removeEventListener('keydown', onKey); previous?.focus?.(); };
   }, [open, onClose]);
   return (
     <AnimatePresence>
       {open && (
         <motion.div
           className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+          initial={reduce ? undefined : { opacity: 0 }} animate={reduce ? undefined : { opacity: 1 }}
+          exit={reduce ? undefined : { opacity: 0 }}
           onClick={onClose}
         >
           <motion.div
+            ref={panelRef}
             role="dialog" aria-modal="true" aria-label={title}
             className={cn('glass noise max-h-[86vh] w-full overflow-auto p-5', wide ? 'max-w-5xl' : 'max-w-xl')}
             initial={reduce ? undefined : { opacity: 0, y: 14, scale: 0.99 }}
@@ -144,6 +163,7 @@ const ToastContext = createContext<{ push: (text: string, tone?: Toast['tone']) 
 export const useToast = () => useContext(ToastContext);
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const reduce = useReducedMotion();
   const [items, setItems] = useState<Toast[]>([]);
   const push = useCallback((text: string, tone: Toast['tone'] = 'info') => {
     const id = Date.now() + Math.random();
@@ -159,9 +179,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           {items.map((item) => (
             <motion.div
               key={item.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 4 }}
+              initial={reduce ? undefined : { opacity: 0, y: 8 }}
+              animate={reduce ? undefined : { opacity: 1, y: 0 }}
+              exit={reduce ? undefined : { opacity: 0, y: 4 }}
               className={cn('glass pointer-events-auto px-3.5 py-2.5 text-xs',
                 item.tone === 'ok' && 'border-ok/40 text-ok',
                 item.tone === 'error' && 'border-danger/40 text-danger')}

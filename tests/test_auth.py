@@ -105,3 +105,69 @@ def test_audit_endpoint_lists_change_request_events(app_client):
     events = app_client.get(f"/api/devices/{device}/audit").json()["data"]
     assert [event["action"] for event in events][:2] == ["submit", "created"]
     assert all(event["actor"] == "何深" for event in events)
+
+
+def test_login_rotates_the_previous_session_cookie(app_client):
+    old_token = app_client.cookies.get("netcfg_session")
+    assert old_token
+    response = app_client.post("/api/auth/login",
+                               json={"username": "主管", "password": "approver-password-1"})
+    assert response.status_code == 200
+    new_token = app_client.cookies.get("netcfg_session")
+    assert new_token and new_token != old_token
+
+    from fastapi.testclient import TestClient
+    app = app_client.app
+    with TestClient(app) as probe:
+        probe.cookies.set("netcfg_session", old_token)
+        assert probe.get("/api/devices").status_code == 401
+
+
+def test_cross_origin_writes_are_rejected(app_client):
+    denied = app_client.post("/api/devices", json={"name": "csrf"},
+                             headers={"Origin": "https://evil.example"})
+    assert denied.status_code == 403
+    assert denied.json()["error"]["code"] == "ORIGIN_MISMATCH"
+
+    allowed = app_client.post("/api/devices", json={"name": "same-origin"},
+                              headers={"Origin": "http://testserver"})
+    assert allowed.status_code == 201, allowed.text
+
+
+def test_login_failures_are_rate_limited(api_app):
+    from fastapi.testclient import TestClient
+    from engine import auth as auth_module
+
+    app, _, _ = api_app
+    with TestClient(app) as client:
+        for _ in range(auth_module.LOGIN_MAX_FAILURES):
+            assert client.post("/api/auth/login",
+                               json={"username": "何深", "password": "wrong-password"}).status_code == 401
+        blocked = client.post("/api/auth/login", json={"username": "何深", "password": "editor-password-1"})
+        assert blocked.status_code == 429
+        assert blocked.json()["error"]["code"] == "TOO_MANY_ATTEMPTS"
+        # A different account is unaffected.
+        other = client.post("/api/auth/login", json={"username": "主管", "password": "approver-password-1"})
+        assert other.status_code == 200
+
+
+def test_weak_passwords_are_rejected():
+    from engine.auth import AuthError, hash_password
+    import pytest as _pytest
+
+    for weak in ["short", "1111111111", "password"]:
+        with _pytest.raises(AuthError) as excinfo:
+            hash_password(weak)
+        assert excinfo.value.code == "WEAK_PASSWORD"
+
+
+def test_secure_cookie_flag_follows_configuration(api_app, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    app, _, _ = api_app
+    monkeypatch.setenv("NETCFG_COOKIE_SECURE", "true")
+    with TestClient(app) as client:
+        response = client.post("/api/auth/login",
+                               json={"username": "何深", "password": "editor-password-1"})
+        cookie = response.headers["set-cookie"].lower()
+        assert "secure" in cookie

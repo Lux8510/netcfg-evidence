@@ -20,9 +20,9 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **175 项**（含 8 条 hypothesis 属性测试）
+- 单元/接口测试 **180 项**（含 8 条 hypothesis 属性测试）
 - 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
-- 浏览器端到端 **7 项**（真实 Chrome + 真实服务进程）
+- 浏览器端到端 **12 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条本机 + 3 条链路，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
@@ -65,7 +65,9 @@ make user USER=老李 ROLE=approver
 | `admin` | 两者都做（本地单人演示方便） |
 
 - 审批人身份来自**登录会话**，请求体里的 `actor` 字段被忽略
-- 会话默认 12 小时，Cookie `HttpOnly` + `SameSite=Lax`，可通过 `NETCFG_SESSION_HOURS` / `NETCFG_COOKIE_SECURE` 调整
+- 会话默认 12 小时，Cookie `HttpOnly` + `SameSite=Lax`（HTTPS 部署设 `NETCFG_COOKIE_SECURE=true`）
+- 再次登录会废止被替换的旧会话；写请求校验 `Origin`/`Referer` 与 Host 一致（SameSite 之外的纵深防御）
+- 登录失败按「账号 + 来源 IP」计数，超过 `NETCFG_LOGIN_MAX_FAILURES`（默认 5）返回 429；密码至少 10 位并拒绝常见弱口令
 - 未登录访问 `/api/*` 返回 401，前端跳转 `/login.html`
 
 ## 当前能力
@@ -325,7 +327,7 @@ make concurrency
 make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动跳过
 ```
 
-7 条真实浏览器用例（Bento 工作台，不再是标签页）：
+12 条真实浏览器用例（Bento 工作台）：
 
 1. 导入 → 设基线 → 比对 → 并排 diff 标出 cost 10 与 cost 30
 2. 规则违规 → 生成变更单 → 提交 → 批准 → 审计事件
@@ -336,6 +338,9 @@ make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动�
 7. 拓扑卡片按登记的链路画出节点，点击节点切换设备
 8. 审计卡片列出变更单事件
 9. 豁免可从界面登记与撤销
+10. 延迟返回的旧设备响应不会覆盖新设备
+11. 跨设备 Finding 的「对端证据」打开对端版本原文
+12. 窄窗口下 3D 背景自动卸载；弹窗焦点圈定、拓扑节点可键盘操作
 
 单元测试默认排除 `e2e`（`pyproject.toml` 的 `addopts`），所以 `pytest` 仍然是秒级；`make e2e` 单独跑浏览器用例。
 

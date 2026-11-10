@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion, useReducedMotion } from 'motion/react';
 import {
   Activity, ArrowRightLeft, CheckCircle2, FileDiff, GitBranch, Link2, ListChecks,
@@ -21,6 +21,8 @@ const statusTone: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
 
 export default function Dashboard({ user, onLogout }: { user: User; onLogout: () => void }) {
   const toast = useToast();
+  const loadSeq = useRef(0);
+  const deviceRef = useRef('');
   const [devices, setDevices] = useState<Device[]>([]);
   const [deviceId, setDeviceId] = useState<string>('');
   const [versions, setVersions] = useState<Version[]>([]);
@@ -47,11 +49,13 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
   }, []);
 
   const loadDeviceData = useCallback(async (id: string) => {
-    if (!id) {
-      setVersions([]); setBaseline(null); setDrift(null); setRuleCheck(null);
-      setChanges([]); setLinks([]); setExplanations([]); setAudit([]);
-      return;
-    }
+    const seq = ++loadSeq.current;
+    deviceRef.current = id;
+    // Clear first: the previous device's data must never be shown under the new selection.
+    setVersions([]); setBaseline(null); setDrift(null); setRuleCheck(null);
+    setChanges([]); setLinks([]); setExplanations([]); setAudit([]);
+    if (!id) return;
+    const stale = () => seq !== loadSeq.current || deviceRef.current !== id;
     const [nextVersions, nextBaseline, nextDrift, nextChanges, nextLinks, nextExplain, nextAudit] = await Promise.all([
       api<Version[]>(`/devices/${id}/configs`),
       api<{ config_version_id: string } | null>(`/devices/${id}/baseline`),
@@ -61,6 +65,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
       api<Explanation[]>(`/devices/${id}/explanations`),
       api<AuditRow[]>(`/devices/${id}/audit`),
     ]);
+    if (stale()) return;
     setVersions(nextVersions);
     setBaseline(nextBaseline);
     setDrift(nextDrift[0] ?? null);
@@ -71,11 +76,17 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
 
     const runs = await api<{ run_id: string; counts: Record<string, number>; config_version_id: string }[]>(
       `/devices/${id}/rules/runs`);
+    if (stale()) return;
     if (runs.length) {
       const latest = runs[0];
-      const findings = await api<Finding[]>(`/devices/${id}/findings?run_id=${encodeURIComponent(latest.run_id)}`);
+      const [findings, scopedExplanations] = await Promise.all([
+        api<Finding[]>(`/devices/${id}/findings?run_id=${encodeURIComponent(latest.run_id)}`),
+        api<Explanation[]>(`/devices/${id}/explanations?run_id=${encodeURIComponent(latest.run_id)}`),
+      ]);
+      if (stale()) return;
       setRuleCheck({ run_id: latest.run_id, device_id: id, config_version_id: latest.config_version_id,
         counts: latest.counts, digest: {}, findings });
+      setExplanations(scopedExplanations);
     } else {
       setRuleCheck(null);
     }
@@ -83,6 +94,11 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
 
   useEffect(() => { loadDevices().catch((error) => toast.push((error as Error).message, 'error')); }, [loadDevices, toast]);
   useEffect(() => { loadDeviceData(deviceId).catch((error) => toast.push((error as Error).message, 'error')); }, [deviceId, loadDeviceData, toast]);
+
+  useEffect(() => {
+    // Any dialog belongs to the device that opened it.
+    setDiffTarget(null); setEvidence(null); setChangeFor(null); setNoteFor(null); setExemptFor(null);
+  }, [deviceId]);
 
   const currentDevice = devices.find((device) => device.id === deviceId) ?? null;
   const deviceLinks = useMemo(
@@ -115,13 +131,17 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
   });
 
   const computeDrift = () => run('正在比对…', async () => {
-    const report = await api<DriftReport>(`/devices/${deviceId}/drift`, { body: {} });
+    const owner = deviceId;
+    const report = await api<DriftReport>(`/devices/${owner}/drift`, { body: {} });
+    if (deviceRef.current !== owner) return;
     setDrift(report);
     toast.push(report.identical ? '与基线一致' : `发现 ${report.items.length} 处漂移`, report.identical ? 'ok' : 'info');
   });
 
   const checkRules = () => run('正在检查…', async () => {
-    const result = await api<RuleCheck>(`/devices/${deviceId}/rules/check`, { body: { include_cross: includeCross } });
+    const owner = deviceId;
+    const result = await api<RuleCheck>(`/devices/${owner}/rules/check`, { body: { include_cross: includeCross } });
+    if (deviceRef.current !== owner) return;
     setRuleCheck(result);
     toast.push(`检查完成：违规 ${result.counts.findings_violated ?? 0}，无法判定 ${result.counts.findings_undetermined ?? 0}`, 'ok');
   });
@@ -161,7 +181,9 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
   });
 
   const generateExplanation = () => run('正在生成解释…', async () => {
-    const rows = await api<Explanation[]>(`/devices/${deviceId}/explanations`, { body: {} });
+    const owner = deviceId;
+    const rows = await api<Explanation[]>(`/devices/${owner}/explanations`, { body: {} });
+    if (deviceRef.current !== owner) return;
     setExplanations(rows);
     toast.push(`生成 ${rows.length} 条解释`, 'ok');
   });
@@ -191,8 +213,10 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
         <Reveal className="col-span-12 lg:col-span-7" delay={0.06}>
           <RulesCard check={ruleCheck} busy={busy} includeCross={includeCross}
                      onToggleCross={setIncludeCross} onRun={checkRules}
-                     onEvidence={(finding, line) => setEvidence({
-                       versionId: finding.config_version_id, line, title: `${finding.rule_id} 证据` })}
+                     onEvidence={(finding, item) => setEvidence({
+                       versionId: item.version_id ?? finding.config_version_id,
+                       line: item.line as number,
+                       title: `${finding.rule_id} 证据` })}
                      onGenerate={setChangeFor} />
         </Reveal>
 
@@ -241,7 +265,7 @@ function Header({ user, devices, deviceId, onSelect, onCreate, onLogout, busy }:
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Select value={deviceId} onChange={(event) => onSelect(event.target.value)} data-testid="device-select"
-                className="w-[200px]">
+                aria-label="选择设备" className="w-[200px]">
           {devices.length === 0 && <option value="">还没有设备</option>}
           {devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
         </Select>
@@ -423,7 +447,7 @@ function RevokeButton({ exemption, onRevoke }: { exemption: Exemption; onRevoke:
 function RulesCard({ check, busy, includeCross, onToggleCross, onRun, onEvidence, onGenerate }: {
   check: RuleCheck | null; busy: string; includeCross: boolean;
   onToggleCross: (value: boolean) => void; onRun: () => void;
-  onEvidence: (finding: Finding, line: number) => void;
+  onEvidence: (finding: Finding, item: { line: number | null; version_id?: string | null }) => void;
   onGenerate: (finding: Finding) => void;
 }) {
   return (
@@ -467,7 +491,7 @@ function RulesCard({ check, busy, includeCross, onToggleCross, onRun, onEvidence
                       <code className="mono rounded bg-black/30 px-1.5 py-0.5">{item.text}</code>
                       {item.line !== null && (
                         <Button size="sm" variant="ghost" data-testid="evidence-button"
-                                onClick={() => onEvidence(finding, item.line as number)}>看原文</Button>
+                                onClick={() => onEvidence(finding, item)}>看原文</Button>
                       )}
                     </div>
                   ))}
@@ -531,7 +555,11 @@ function TopologyCard({ links, currentId, onSelect }: { links: Link[]; currentId
             const current = id === currentId;
             return (
               <g key={id} transform={`translate(${x},${y})`} className="cursor-pointer" data-testid="topo-node"
-                 data-device={id} onClick={() => onSelect(id)}>
+                 data-device={id} role="button" tabIndex={0} aria-label={`设备 ${graph.nodes.get(id)}`}
+                 onClick={() => onSelect(id)}
+                 onKeyDown={(event) => {
+                   if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(id); }
+                 }}>
                 <circle r={26} fill={current ? '#6aa6ff' : '#121722'} stroke="#6aa6ff" strokeOpacity={current ? 1 : 0.4} />
                 <text y={4} textAnchor="middle" fontSize={11} fill={current ? '#0a0c10' : '#e2e8f0'}>
                   {graph.nodes.get(id)}

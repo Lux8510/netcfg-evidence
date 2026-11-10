@@ -29,6 +29,7 @@ jobs:
           npm run build
           cd ..
           git diff --exit-code -- web
+          test -z "$(git status --porcelain --untracked-files=all -- web)"
       - name: Unit and API tests
         run: python -m pytest
       - name: Drift evaluation
@@ -70,6 +71,13 @@ jobs:
           echo "ui ok"
           echo "--- metrics without session must be 401 ---"
           curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/metrics
+          echo "--- docker healthcheck ---"
+          for i in $(seq 1 20); do
+            status=$(docker inspect --format '{{.State.Health.Status}}' netcfg 2>/dev/null || echo starting)
+            if [ "$status" = "healthy" ]; then echo "healthy"; break; fi
+            sleep 2
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' netcfg)" = "healthy"
       - name: Show container logs on failure
         if: failure()
         run: docker logs netcfg || true

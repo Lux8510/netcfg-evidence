@@ -239,3 +239,96 @@ def test_explanations_are_generated_and_listed(page, server):
     page.wait_for_selector("[data-testid=explain-list] article")
     text = page.inner_text("[data-testid=explain-list]")
     assert "R001" in text and "引用" in text
+
+
+def test_delayed_response_from_previous_device_is_dropped(page, server):
+    first = api_post(server, "/api/devices", {"name": "race-a"})["id"]
+    second = api_post(server, "/api/devices", {"name": "race-b"})["id"]
+    api_post(server, f"/api/devices/{first}/configs", {"text": BASELINE, "source_name": "A-version"})
+    api_post(server, f"/api/devices/{second}/configs", {"text": SECOND, "source_name": "B-version"})
+
+    def slow(route):
+        import time
+        time.sleep(1.4)
+        route.continue_()
+
+    page.route(f"**/api/devices/{first}/configs", slow)
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", first)
+    page.wait_for_timeout(150)
+    page.select_option("[data-testid=device-select]", second)
+    page.wait_for_selector("[data-testid=version-list] :text('B-version')")
+    page.wait_for_timeout(1800)
+    text = page.inner_text("[data-testid=version-list]")
+    assert "B-version" in text and "A-version" not in text
+
+
+def test_peer_evidence_opens_the_peer_version(page, server):
+    first = api_post(server, "/api/devices", {"name": "peer-a"})["id"]
+    second = api_post(server, "/api/devices", {"name": "peer-b"})["id"]
+    api_post(server, f"/api/devices/{first}/configs", {"text": BASELINE, "source_name": "a"})
+    wrong_area = SECOND.replace("network 10.12.0.0/30 area 0.0.0.0", "network 10.12.0.0/30 area 0.0.0.1")
+    api_post(server, f"/api/devices/{second}/configs", {"text": wrong_area, "source_name": "b"})
+    api_post(server, "/api/links", {"device_a_id": first, "iface_a": "eth2", "device_b_id": second, "iface_b": "eth1"})
+
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", first)
+    page.wait_for_selector("[data-testid=run-rules]")
+    page.click("[data-testid=run-rules]")
+    page.wait_for_selector("[data-testid=finding][data-rule='R005']")
+    finding = page.locator("[data-testid=finding][data-rule='R005']")
+    buttons = finding.locator("[data-testid=evidence-button]")
+    assert buttons.count() >= 2
+    buttons.nth(1).click()
+    page.wait_for_function("() => document.querySelector('[data-testid=evidence-body]')?.textContent?.includes('0.0.0.1')")
+
+
+def test_explanations_are_scoped_to_the_latest_run(page, server):
+    device = api_post(server, "/api/devices", {"name": "scoped-explain"})["id"]
+    api_post(server, f"/api/devices/{device}/configs", {"text": BROKEN, "source_name": "broken"})
+    api_post(server, f"/api/devices/{device}/rules/check", {})
+    api_post(server, f"/api/devices/{device}/explanations", {})
+    # A newer clean run has no findings and therefore no explanations.
+    api_post(server, f"/api/devices/{device}/configs", {"text": BASELINE, "source_name": "clean"})
+    api_post(server, f"/api/devices/{device}/rules/check", {})
+
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", device)
+    page.wait_for_selector("[data-testid=explain-list]")
+    page.wait_for_timeout(600)
+    text = page.inner_text("[data-testid=explain-list]")
+    assert "R001" not in text
+
+
+def test_3d_background_turns_off_when_window_shrinks(page, server):
+    page.set_viewport_size({"width": 1200, "height": 900})
+    page.goto(server)
+    page.wait_for_selector("canvas", timeout=10000)
+    page.set_viewport_size({"width": 800, "height": 900})
+    page.wait_for_function("() => document.querySelectorAll('canvas').length === 0", timeout=5000)
+
+
+def test_dialog_focus_and_topology_keyboard(page, server):
+    device = seed_drift(server)
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", device)
+    page.wait_for_selector("[data-testid=drift-item]")
+    page.click("[data-testid=drift-item] [data-testid=diff-button]")
+    page.wait_for_selector("[data-testid=diff-body]")
+    inside = page.evaluate("() => !!document.querySelector('[role=dialog]')?.contains(document.activeElement)")
+    assert inside
+    page.keyboard.press("Escape")
+    page.wait_for_function("() => !document.querySelector('[role=dialog]')")
+
+    first = api_post(server, "/api/devices", {"name": "kb-a"})["id"]
+    second = api_post(server, "/api/devices", {"name": "kb-b"})["id"]
+    api_post(server, f"/api/devices/{first}/configs", {"text": BASELINE, "source_name": "a"})
+    api_post(server, f"/api/devices/{second}/configs", {"text": SECOND, "source_name": "b"})
+    api_post(server, "/api/links", {"device_a_id": first, "iface_a": "eth2", "device_b_id": second, "iface_b": "eth1"})
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", first)
+    page.wait_for_selector("[data-testid=topo-svg]")
+    node = page.locator("[data-testid=topo-node][data-device='" + second + "']")
+    node.focus()
+    page.keyboard.press("Enter")
+    page.wait_for_function("(id) => document.querySelector('[data-testid=device-select]').value === id", arg=second)

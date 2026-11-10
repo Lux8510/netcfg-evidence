@@ -115,7 +115,8 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     app = FastAPI(title="netcfg-evidence", version="0.1.0", lifespan=lifespan)
     app.state.session_factory = maker
 
-    from engine.auth import COOKIE_NAME, AuthError, authenticate, end_session, resolve, start_session, user_payload
+    from engine.auth import (COOKIE_NAME, AuthError, authenticate, check_login_allowed, end_session,
+                             record_login_failure, reset_login_failures, resolve, start_session, user_payload)
 
     PUBLIC_API = {"/api/health", "/api/auth/login"}
     APPROVER_ACTION = re.compile(r"^/api/change-requests/[^/]+/(approve|reject|apply)$")
@@ -134,6 +135,15 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         finally:
             db.close()
         request.state.user = user
+
+        # Defence in depth on top of SameSite=Lax: browser cross-origin writes are rejected.
+        if request.method in {"POST", "PUT", "PATCH", "DELETE"} and path != "/api/auth/login":
+            origin = request.headers.get("origin") or request.headers.get("referer")
+            if origin:
+                from urllib.parse import urlsplit
+                if urlsplit(origin).netloc != request.headers.get("host", ""):
+                    return JSONResponse(status_code=403, content={"error": {
+                        "code": "ORIGIN_MISMATCH", "message": "跨站写请求已被拒绝"}})
 
         if path == "/api/auth/logout":
             return await call_next(request)
@@ -181,11 +191,20 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         return observability.snapshot()
 
     @app.post("/api/auth/login")
-    def login(body: LoginBody, db: Session = Depends(get_db)):
+    def login(body: LoginBody, request: Request, db: Session = Depends(get_db)):
+        client = request.client.host if request.client else "unknown"
+        try:
+            check_login_allowed(body.username, client)
+        except AuthError as exc:
+            raise service.ServiceError(exc.code, exc.message, exc.status) from exc
         try:
             user = authenticate(db, body.username, body.password)
         except AuthError as exc:
+            record_login_failure(body.username, client)
             raise service.ServiceError(exc.code, exc.message, exc.status) from exc
+        reset_login_failures(body.username, client)
+        # Rotate: logging in always invalidates the session cookie it replaces.
+        end_session(db, request.cookies.get(COOKIE_NAME))
         token = start_session(db, user)
         # Commit before the client can issue its next request; the dependency teardown
         # runs after the response is sent and would otherwise race the new session.

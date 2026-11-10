@@ -11,6 +11,9 @@ import hashlib
 import hmac
 import os
 import secrets
+import threading
+import time
+from collections import defaultdict, deque
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
@@ -22,6 +25,12 @@ COOKIE_NAME = "netcfg_session"
 ITERATIONS = 210_000
 ROLES = {"editor", "approver", "admin"}
 SESSION_TTL_HOURS = int(os.environ.get("NETCFG_SESSION_HOURS", "12"))
+LOGIN_MAX_FAILURES = int(os.environ.get("NETCFG_LOGIN_MAX_FAILURES", "5"))
+LOGIN_WINDOW_SECONDS = int(os.environ.get("NETCFG_LOGIN_WINDOW_SECONDS", "300"))
+WEAK_PASSWORDS = {"password", "password1", "12345678", "123456789", "qwertyui", "admin123", "11111111"}
+
+_failures: dict[tuple[str, str], deque[float]] = defaultdict(deque)
+_failure_lock = threading.Lock()
 
 
 class AuthError(Exception):
@@ -37,9 +46,40 @@ def _normalise(username: str) -> str:
     return unicodedata.normalize("NFKC", username or "").strip()
 
 
+def check_login_allowed(username: str, client: str) -> None:
+    key = (_normalise(username).casefold(), client)
+    now = time.time()
+    with _failure_lock:
+        bucket = _failures[key]
+        while bucket and bucket[0] < now - LOGIN_WINDOW_SECONDS:
+            bucket.popleft()
+        if len(bucket) >= LOGIN_MAX_FAILURES:
+            raise AuthError("TOO_MANY_ATTEMPTS",
+                            f"登录失败次数过多，请 {LOGIN_WINDOW_SECONDS // 60} 分钟后再试", 429)
+
+
+def record_login_failure(username: str, client: str) -> None:
+    key = (_normalise(username).casefold(), client)
+    with _failure_lock:
+        _failures[key].append(time.time())
+
+
+def reset_login_failures(username: str, client: str) -> None:
+    with _failure_lock:
+        _failures.pop((_normalise(username).casefold(), client), None)
+
+
+def reset_all_login_failures() -> None:
+    """Tests only."""
+    with _failure_lock:
+        _failures.clear()
+
+
 def hash_password(password: str) -> str:
-    if not 8 <= len(password) <= 200:
-        raise AuthError("WEAK_PASSWORD", "密码至少 8 位", 422)
+    if not 10 <= len(password) <= 200:
+        raise AuthError("WEAK_PASSWORD", "密码至少 10 位", 422)
+    if password.casefold() in WEAK_PASSWORDS or len(set(password)) == 1:
+        raise AuthError("WEAK_PASSWORD", "密码过于简单，请使用更长的随机密码", 422)
     salt = secrets.token_hex(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode(), salt.encode(), ITERATIONS).hex()
     return f"pbkdf2_sha256${ITERATIONS}${salt}${digest}"

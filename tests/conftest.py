@@ -20,6 +20,14 @@ SAMPLES = Path(__file__).resolve().parents[1] / "samples/frr"
 PASSWORDS = {"何深": "editor-password-1", "主管": "approver-password-1", "编辑": "editor-password-2"}
 
 
+@pytest.fixture(autouse=True)
+def _reset_login_limiter():
+    from engine import auth as auth_module
+    auth_module.reset_all_login_failures()
+    yield
+    auth_module.reset_all_login_failures()
+
+
 @pytest.fixture()
 def api_app(tmp_path):
     engine = make_engine(f"sqlite:///{tmp_path / 'test.db'}")
