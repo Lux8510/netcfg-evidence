@@ -65,8 +65,9 @@ jobs:
           echo "--- health ---"
           curl -fsS http://127.0.0.1:8000/api/health
           echo
-          echo "--- login page ---"
-          curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/login.html
+          echo "--- UI shell ---"
+          curl -fsS http://127.0.0.1:8000/ | grep -q 'id="root"'
+          echo "ui ok"
           echo "--- metrics without session must be 401 ---"
           curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8000/api/metrics
       - name: Show container logs on failure
