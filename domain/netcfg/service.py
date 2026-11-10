@@ -8,7 +8,8 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from engine.models import Baseline, ConfigVersion, Device, DeviceLink, DriftReport, Finding, RuleRun
+from engine.models import (AuditEvent, Baseline, ConfigVersion, Device, DeviceLink, DriftReport,
+                           Finding, RuleRun)
 from engine.models import uid
 
 from .drift import diff_configs
@@ -373,6 +374,27 @@ def link_payload(db: Session, link: DeviceLink) -> dict[str, Any]:
 
 def parsed_version_of(version: ConfigVersion) -> str:
     return getattr(version, "parser_version", None) or "unknown"
+
+
+def list_audit(db: Session, device_id: str, limit: int = 100) -> list[AuditEvent]:
+    _device(db, device_id)
+    return list(db.scalars(
+        select(AuditEvent).where(AuditEvent.device_id == device_id)
+        .order_by(AuditEvent.created_at.desc(), AuditEvent.id.desc()).limit(limit)
+    ))
+
+
+def audit_payload(row: AuditEvent) -> dict[str, Any]:
+    return {
+        "id": row.id,
+        "device_id": row.device_id,
+        "entity_type": row.entity_type,
+        "entity_id": row.entity_id,
+        "action": row.action,
+        "actor": row.actor,
+        "note": row.note,
+        "created_at": row.created_at.isoformat(),
+    }
 
 
 def list_rule_runs(db: Session, device_id: str, limit: int = 20) -> list[RuleRun]:

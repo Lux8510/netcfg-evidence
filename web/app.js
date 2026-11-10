@@ -268,12 +268,17 @@ function renderDrift(report, note) {
           <button class="btn ghost small" data-revoke="${esc(item.exemption.id)}">撤销豁免</button></div>` : ''}
         <div class="row gap">
           ${item.old_lines.length ? `<button class="btn ghost small" data-v="${esc(report.baseline_version_id)}" data-from="${item.old_lines[0]}" data-to="${item.old_lines[item.old_lines.length - 1]}">基线第 ${item.old_lines.join(',')} 行</button>` : ''}
+          <button class="btn ghost small" data-diff="${esc(report.baseline_version_id)}|${esc(report.current_version_id)}">并排对比</button>
           ${!item.exemption ? `<button class="btn ghost small" data-exempt="${esc(report.id)}|${esc(item.path)}">登记豁免</button>` : ''}
           ${item.new_lines.length ? `<button class="btn ghost small" data-v="${esc(report.current_version_id)}" data-from="${item.new_lines[0]}" data-to="${item.new_lines[item.new_lines.length - 1]}">当前第 ${item.new_lines.join(',')} 行</button>` : ''}
         </div>
       </article>`).join('')}</div>`;
   host.querySelectorAll('[data-v]').forEach((button) => {
     button.onclick = () => showLines(button.dataset.v, button.dataset.from, button.dataset.to, '证据原文', button.dataset.device);
+  });
+  host.querySelectorAll('[data-diff]').forEach((button) => {
+    const [baseId, currentId] = button.dataset.diff.split('|');
+    button.onclick = () => showDiff(baseId, currentId, '基线', '当前');
   });
   host.querySelectorAll('[data-exempt]').forEach((button) => {
     const [reportId, path] = button.dataset.exempt.split('|');
@@ -523,6 +528,129 @@ function renderExplain(rows, runId) {
     </article>`).join('');
 }
 
+// ---------- topology ----------
+async function loadTopology() {
+  try {
+    const links = await api('/links');
+    renderTopology(links);
+  } catch (error) { status(error.message, 'error'); }
+}
+
+function renderTopology(links) {
+  const host = $('#topology');
+  if (!links.length) {
+    host.innerHTML = '<p class="muted">还没有登记链路，先在左侧为两个接口登记连接。</p>';
+    return;
+  }
+  const nodes = new Map();
+  for (const link of links) {
+    nodes.set(link.device_a.id, link.device_a.name);
+    nodes.set(link.device_b.id, link.device_b.name);
+  }
+  const ids = [...nodes.keys()];
+  const width = 640, height = 360, cx = width / 2, cy = height / 2;
+  const radius = Math.min(140, 40 + ids.length * 18);
+  const position = new Map();
+  ids.forEach((id, index) => {
+    const angle = (2 * Math.PI * index) / ids.length - Math.PI / 2;
+    position.set(id, [cx + radius * Math.cos(angle), cy + radius * Math.sin(angle)]);
+  });
+  const parts = [];
+  for (const link of links) {
+    const [x1, y1] = position.get(link.device_a.id);
+    const [x2, y2] = position.get(link.device_b.id);
+    parts.push(`<line class="link" x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}"></line>`);
+    parts.push(`<text class="link-label" x="${(x1 + x2) / 2}" y="${(y1 + y2) / 2 - 4}">${esc(link.device_a.interface)} ↔ ${esc(link.device_b.interface)}</text>`);
+  }
+  for (const id of ids) {
+    const [x, y] = position.get(id);
+    const current = id === state.deviceId ? ' current' : '';
+    parts.push(`<g class="node${current}" data-device="${esc(id)}" transform="translate(${x},${y})">
+      <circle r="26"></circle><text y="4">${esc(nodes.get(id))}</text></g>`);
+  }
+  host.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="设备链路拓扑">${parts.join('')}</svg>`;
+  host.querySelectorAll('.node').forEach((node) => {
+    node.onclick = async () => {
+      state.deviceId = node.dataset.device;
+      $('#device-select').value = state.deviceId;
+      await refreshDevice();
+      activateTab('topology');
+    };
+  });
+}
+
+// ---------- audit ----------
+async function loadAudit() {
+  if (!state.deviceId) { $('#audit-result').innerHTML = ''; return; }
+  const token = currentToken();
+  try {
+    const rows = await api(`/devices/${encodeURIComponent(token.deviceId)}/audit`);
+    if (isStale(token)) return;
+    renderAudit(rows);
+  } catch (error) { status(error.message, 'error'); }
+}
+
+function renderAudit(rows) {
+  const host = $('#audit-result');
+  if (!rows.length) { host.innerHTML = '<p class="muted">还没有审计事件。</p>'; return; }
+  host.innerHTML = rows.map((row) => `<article class="audit-item">
+    <div class="audit-head">${badge(row.action, row.action === 'approve' || row.action === 'created' ? 'ok' : 'warn')}
+      <strong>${esc(row.actor)}</strong><span class="muted small">${when(row.created_at)}</span>
+      <span class="muted small">${esc(row.entity_type)}</span></div>
+    <div class="small">${esc(row.note)}</div>
+  </article>`).join('');
+}
+
+// ---------- side-by-side diff ----------
+function diffRows(left, right) {
+  const n = left.length, m = right.length;
+  if (n * m > 400000) {
+    return Array.from({ length: Math.max(n, m) }, (_, index) => ({
+      left: index < n ? index : null, right: index < m ? index : null,
+    }));
+  }
+  const dp = Array.from({ length: n + 1 }, () => new Uint32Array(m + 1));
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      dp[i][j] = left[i] === right[j] ? dp[i + 1][j + 1] + 1 : Math.max(dp[i + 1][j], dp[i][j + 1]);
+    }
+  }
+  const rows = [];
+  let i = 0, j = 0;
+  while (i < n && j < m) {
+    if (left[i] === right[j]) { rows.push({ left: i, right: j }); i += 1; j += 1; }
+    else if (dp[i + 1][j] >= dp[i][j + 1]) { rows.push({ left: i, right: null }); i += 1; }
+    else { rows.push({ left: null, right: j }); j += 1; }
+  }
+  while (i < n) { rows.push({ left: i, right: null }); i += 1; }
+  while (j < m) { rows.push({ left: null, right: j }); j += 1; }
+  return rows;
+}
+
+async function showDiff(baseVersionId, currentVersionId, baseLabel, currentLabel) {
+  try {
+    const [left, right] = await Promise.all([
+      api(`/versions/${baseVersionId}`), api(`/versions/${currentVersionId}`)]);
+    const leftLines = left.text.split('\n');
+    const rightLines = right.text.split('\n');
+    const rows = diffRows(leftLines, rightLines);
+    $('#diff-title').textContent = '并排对比';
+    $('#diff-left-label').textContent = `基线：${baseLabel}`;
+    $('#diff-right-label').textContent = `当前：${currentLabel}`;
+    $('#diff-body').innerHTML = rows.map((row) => {
+      const l = row.left === null ? '' : leftLines[row.left];
+      const r = row.right === null ? '' : rightLines[row.right];
+      const lClass = row.left === null ? 'empty' : (row.right === null ? 'removed' : '');
+      const rClass = row.right === null ? 'empty' : (row.left === null ? 'added' : '');
+      const lNo = row.left === null ? '' : row.left + 1;
+      const rNo = row.right === null ? '' : row.right + 1;
+      return `<div class="diff-row"><div class="${lClass}"><span class="no">${lNo}</span>${esc(l)}</div>
+        <div class="${rClass}"><span class="no">${rNo}</span>${esc(r)}</div></div>`;
+    }).join('');
+    $('#diff-dialog').showModal();
+  } catch (error) { status(error.message, 'error'); }
+}
+
 // ---------- evidence lines ----------
 async function showLines(versionId, from, to, title, ownerDevice) {
   if (ownerDevice && ownerDevice !== state.deviceId) {
@@ -549,11 +677,16 @@ $('#run-explain').onclick = runExplain;
 $('#cr-submit').onclick = submitChange;
 $('#cr-cancel').onclick = () => $('#change-form').classList.add('hidden');
 $('#lines-close').onclick = () => $('#lines-dialog').close();
+$('#diff-close').onclick = () => $('#diff-dialog').close();
+$('#refresh-topology').onclick = () => void loadTopology();
+$('#refresh-audit').onclick = () => void loadAudit();
 function activateTab(name) {
   const target = document.querySelector(`.tab[data-tab="${name}"]`);
   if (!target) return;
   document.querySelectorAll('.tab').forEach((node) => node.classList.toggle('active', node === target));
   document.querySelectorAll('.tabpane').forEach((pane) => pane.classList.toggle('active', pane.id === `pane-${name}`));
+  if (name === 'topology') void loadTopology();
+  if (name === 'audit') void loadAudit();
 }
 
 document.querySelectorAll('.tab').forEach((tab) => {

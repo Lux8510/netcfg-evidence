@@ -301,6 +301,10 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         include_cross = bool(body and body.include_cross)
         return ok(service.run_rules_check(db, device_id, version_id, include_cross))
 
+    @app.get("/api/devices/{device_id}/audit")
+    def list_audit(device_id: str, limit: int = 100, db: Session = Depends(get_db)):
+        return ok([service.audit_payload(row) for row in service.list_audit(db, device_id, min(limit, 500))])
+
     @app.get("/api/devices/{device_id}/rules/runs")
     def list_rule_runs(device_id: str, db: Session = Depends(get_db)):
         return ok([service.rule_run_payload(row) for row in service.list_rule_runs(db, device_id)])

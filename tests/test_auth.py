@@ -90,3 +90,18 @@ def test_two_roles_complete_one_change(editor_client, approver_client):
     events = editor_client.get(f"/api/change-requests/{request['id']}/events").json()["data"]
     assert [(event["action"], event["actor"]) for event in events] == [
         ("created", "编辑"), ("submit", "编辑"), ("approve", "主管"), ("apply", "主管")]
+
+
+def test_audit_endpoint_lists_change_request_events(app_client):
+    device, run = seed_finding(app_client)
+    request = app_client.post(f"/api/devices/{device}/change-requests", json={
+        "title": "补回 cost",
+        "rationale": "R001 要求显式 cost，需要人工核对后修复。",
+        "finding_ids": [run["findings"][0]["id"]],
+        "proposed_commands": ["interface eth2", " ip ospf cost 10"],
+    }).json()["data"]
+    app_client.post(f"/api/change-requests/{request['id']}/submit", json={"note": "提交"})
+
+    events = app_client.get(f"/api/devices/{device}/audit").json()["data"]
+    assert [event["action"] for event in events][:2] == ["submit", "created"]
+    assert all(event["actor"] == "何深" for event in events)

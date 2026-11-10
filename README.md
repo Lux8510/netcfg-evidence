@@ -20,9 +20,9 @@ python3.12 -m venv .venv
 
 ## 当前状态
 
-- 单元/接口测试 **174 项**（含 8 条 hypothesis 属性测试）
+- 单元/接口测试 **175 项**（含 8 条 hypothesis 属性测试）
 - 真实并发 **3 项**（独立服务进程 + 多线程 HTTP）
-- 浏览器端到端 **7 项**（真实 Chrome + 真实服务进程）
+- 浏览器端到端 **10 项**（真实 Chrome + 真实服务进程）
 - 评测 **20/20**，precision / recall 1.0000
 - 规则 4 条本机 + 3 条链路，三值判定 + not_applicable
 - 变更单状态机 + 强制人工审批 + 追加式审计事件
@@ -81,6 +81,8 @@ make user USER=老李 ROLE=approver
 ![漂移视图](docs/ui-drift.png)
 
 ![规则与证据](docs/ui-rules.png)
+
+![拓扑](docs/ui-topology.png)
 
 也可以直接调用模块：
 
@@ -323,7 +325,7 @@ make concurrency
 make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动跳过
 ```
 
-6 条真实浏览器用例：
+10 条真实浏览器用例：
 
 1. 导入 → 设基线 → 比对 → 两端证据按钮分别打开对应版本的原文
 2. 规则违规 → 生成变更单 → 提交 → 批准 → 审计事件
@@ -331,6 +333,10 @@ make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动�
 4. 生成解释后，列表显示规则 ID 与引用
 5. 切换设备时，延迟返回的旧变更单不会渲染
 6. 设备名与变更单标题里的 `<img onerror>` 不会被当作 HTML 执行
+7. 拓扑页按登记的链路画出节点，点击节点切换设备
+8. 审计页按时间列出变更单事件
+9. 漂移项可以打开并排 diff，标出删除与新增行
+10. 豁免可从界面登记与撤销
 
 单元测试默认排除 `e2e`（`pyproject.toml` 的 `addopts`），所以 `pytest` 仍然是秒级；`make e2e` 单独跑浏览器用例。
 

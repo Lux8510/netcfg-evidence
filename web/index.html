@@ -49,6 +49,8 @@
         <button class="tab" data-tab="rules">规则与证据</button>
         <button class="tab" data-tab="changes">变更单与审批</button>
         <button class="tab" data-tab="explain">解释</button>
+        <button class="tab" data-tab="topology">拓扑</button>
+        <button class="tab" data-tab="audit">审计</button>
       </nav>
 
       <div id="status" class="status" role="status"></div>
@@ -84,6 +86,18 @@
         <div id="changes-result"></div>
       </div>
 
+      <div class="tabpane" id="pane-topology">
+        <div class="row"><button id="refresh-topology" class="btn primary">刷新拓扑</button>
+          <span class="muted">来自已登记的链路；点击节点切换设备</span></div>
+        <div id="topology" class="topology"></div>
+      </div>
+
+      <div class="tabpane" id="pane-audit">
+        <div class="row"><button id="refresh-audit" class="btn primary">刷新审计</button>
+          <span class="muted">变更单与豁免的追加式事件</span></div>
+        <div id="audit-result"></div>
+      </div>
+
       <div class="tabpane" id="pane-explain">
         <div class="row">
           <button id="run-explain" class="btn primary">为最近一次检查生成解释</button>
@@ -93,6 +107,12 @@
       </div>
     </section>
   </main>
+
+  <dialog id="diff-dialog" class="wide">
+    <div class="row"><strong id="diff-title">并排对比</strong><button id="diff-close" class="btn ghost">关闭</button></div>
+    <div class="diff-head"><span id="diff-left-label">基线</span><span id="diff-right-label">当前</span></div>
+    <div id="diff-body" class="diff-view"></div>
+  </dialog>
 
   <dialog id="lines-dialog">
     <div class="row"><strong id="lines-title">原文</strong><button id="lines-close" class="btn ghost">关闭</button></div>

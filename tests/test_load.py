@@ -59,7 +59,7 @@ def server(tmp_path):
 
 
 def test_mixed_load_has_no_errors(server):
-    report = run(server, requests=150, concurrency=15, username=USER, password=PASSWORD)
+    report = run(server, requests=150, concurrency=15, username=USER, password=PASSWORD, write=True)
     assert report["errors"] == 0, report["error_samples"]
     assert report["latency_ms"]["p95"] < 2000, report["latency_ms"]
     assert report["throughput_rps"] > 10, report

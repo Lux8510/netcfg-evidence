@@ -277,3 +277,46 @@ def test_exemption_from_ui_and_revoke(page, server):
     page.click("#drift-result button:has-text('撤销豁免')")
     page.wait_for_selector("#drift-result article:has-text('登记豁免')")
     assert "豁免至" not in page.inner_text("#drift-result")
+
+
+def test_topology_tab_draws_registered_links(page, server):
+    first = api_post(server, "/api/devices", {"name": "topo-a"})["id"]
+    second = api_post(server, "/api/devices", {"name": "topo-b"})["id"]
+    api_post(server, f"/api/devices/{first}/configs", {"text": BASELINE, "source_name": "a"})
+    api_post(server, f"/api/devices/{second}/configs",
+             {"text": (ROOT / "samples/frr/r2.conf").read_text(encoding="utf-8"), "source_name": "b"})
+    api_post(server, "/api/links",
+             {"device_a_id": first, "iface_a": "eth2", "device_b_id": second, "iface_b": "eth1"})
+
+    page.goto(server)
+    page.click(".tab[data-tab='topology']")
+    page.wait_for_selector("#topology svg")
+    text = page.inner_text("#topology")
+    assert "topo-a" in text and "topo-b" in text
+    page.click("#topology .node:has-text('topo-b')")
+    page.wait_for_function("() => document.querySelector('#device-select').selectedOptions[0].textContent === 'topo-b'")
+
+
+def test_audit_tab_lists_events(page, server):
+    device, request_id = seed_change_request(server, "audit-a", "审计用变更单")
+    page.goto(server)
+    page.select_option("#device-select", device)
+    page.click(".tab[data-tab='audit']")
+    page.wait_for_selector("#audit-result .audit-item")
+    text = page.inner_text("#audit-result")
+    assert "created" in text and "何深" in text
+
+
+def test_side_by_side_diff_highlights_changes(page, server):
+    device = _seed_drift(server)
+    page.goto(server)
+    page.select_option("#device-select", device)
+    page.wait_for_selector("#drift-result article:has-text('interface.eth2.ospf.cost')")
+    page.click("#drift-result article:has-text('interface.eth2.ospf.cost') button:has-text('并排对比')")
+    page.wait_for_selector("#diff-dialog[open]")
+    rows = page.locator("#diff-body .diff-row").count()
+    assert rows > 10
+    assert page.locator("#diff-body .removed").count() >= 1
+    assert page.locator("#diff-body .added").count() >= 1
+    assert "cost 10" in page.inner_text("#diff-body")
+    assert "cost 30" in page.inner_text("#diff-body")

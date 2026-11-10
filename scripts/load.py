@@ -37,10 +37,11 @@ def percentile(values: list[float], fraction: float) -> float:
     return ordered[index]
 
 
-def once(client: httpx.Client, base: str, index: int, device_id: str | None) -> Result:
+def once(client: httpx.Client, base: str, index: int, device_id: str | None,
+         write: bool = True) -> Result:
     started = time.perf_counter()
     try:
-        if index % 10 == 0 and device_id:
+        if write and index % 10 == 0 and device_id:
             response = client.post(base + f"/api/devices/{device_id}/configs",
                                    json={"text": CONFIG.replace("10.0.0.1/30", f"10.0.0.{index % 200 + 1}/30"),
                                          "source_name": f"load-{index}"})
@@ -55,19 +56,26 @@ def once(client: httpx.Client, base: str, index: int, device_id: str | None) -> 
     return Result(status=status, duration_ms=(time.perf_counter() - started) * 1000, error=error)
 
 
-def run(base: str, requests: int, concurrency: int, username: str, password: str) -> dict:
+def run(base: str, requests: int, concurrency: int, username: str, password: str,
+        write: bool = True) -> dict:
     with httpx.Client(timeout=20) as setup:
         login = setup.post(base + "/api/auth/login", json={"username": username, "password": password})
         if login.status_code != 200:
             raise SystemExit(f"login failed: {login.status_code} {login.text}")
         cookies = login.cookies
-        device = setup.post(base + "/api/devices", json={"name": f"load-{int(time.time())}"}, cookies=cookies)
-        device_id = device.json().get("data", {}).get("id") if device.status_code < 400 else None
+        device_id = None
+        if write:
+            existing = setup.get(base + "/api/devices", cookies=cookies).json().get("data") or []
+            if existing:
+                device_id = existing[0]["id"]
+            else:
+                device = setup.post(base + "/api/devices", json={"name": "load-device"}, cookies=cookies)
+                device_id = device.json().get("data", {}).get("id")
 
     started = time.perf_counter()
     with httpx.Client(timeout=20, cookies=cookies) as client:
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
-            results = list(pool.map(lambda index: once(client, base, index, device_id), range(requests)))
+            results = list(pool.map(lambda index: once(client, base, index, device_id, write), range(requests)))
     elapsed = time.perf_counter() - started
 
     durations = [item.duration_ms for item in results]
@@ -97,9 +105,11 @@ def main() -> int:
     parser.add_argument("--username", required=True)
     parser.add_argument("--password", required=True)
     parser.add_argument("--max-p95", type=float, default=0.0, help="0 disables the assertion")
+    parser.add_argument("--read-only", action="store_true", help="skip imports (safe for a demo database)")
     args = parser.parse_args()
 
-    report = run(args.base, args.requests, args.concurrency, args.username, args.password)
+    report = run(args.base, args.requests, args.concurrency, args.username, args.password,
+                 write=not args.read_only)
     print(report)
     if report["errors"]:
         return 1

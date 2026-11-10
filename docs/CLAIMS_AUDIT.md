@@ -74,6 +74,9 @@
 | 新增：解析在任意合法输入下确定 | — | **强制** | hypothesis：解析幂等、注释与顺序不变性 | `tests/test_properties.py` |
 | 新增：diff 与自身为空、路径对称 | — | **强制** | hypothesis 性质 | `tests/test_properties.py` |
 | 新增：混合负载无错误 | — | **强制** | 150 请求 / 15 并发，0 错误、p95 阈值 | `tests/test_load.py` |
+| 新增：拓扑来自真实链路数据 | — | **强制** | SVG 由 `/api/links` 渲染，节点可切换设备 | `tests/test_e2e_ui.py` |
+| 新增：审计按设备聚合 | — | **强制** | `/api/devices/{id}/audit` + 时间线 | `tests/test_auth.py` |
+| 新增：并排 diff 标出增删 | — | **强制** | LCS 行级对比，E2E 断言 removed/added | `tests/test_e2e_ui.py` |
 | B03 JSON 形状 | — | **部分** | 新增 findings.evidence 数组、快照条数、引用合法性触发器；JSON 字段的完整业务形状仍未全部约束 |
 | UI02 证据按钮版本 | — | **强制（已修）** | 缺少 `config_version_id` 时禁用按钮并提示 |
 | UI03 解释归属同一 run | — | **强制（已修）** | 解释按最新 run 查询，界面显示 run 标识 |
