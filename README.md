@@ -64,6 +64,36 @@ docs/                架构、演示、评测、承诺对照
 tests/               单元/接口/并发/属性/浏览器测试
 ```
 
+## 接入真实设备（只读 SSH，可选）
+
+没有设备也能验证：仓库自带一个假 SSH 设备用于测试；真实设备需要你确认授权与只读账号。
+
+1. 在服务端环境变量里放密码（接口只保存变量名，不存密码）：
+
+```bash
+export NETCFG_SSH_PASSWORD='...'
+# 可选：NETCFG_SSH_KEY_PATH、NETCFG_SSH_TIMEOUT、NETCFG_SSH_STRICT_HOST_KEY=true
+```
+
+2. 配置设备目标（`PUT /api/devices/{id}/target`），或在工作台「SSH 采集与变更核对」卡片填写。
+
+3. 采集只执行白名单命令：`show running-config`、`show ip ospf neighbor`、`show ip interface brief`。
+   没有任意 shell、没有配置写入路径；失败会记录采集事件且**不生成版本**。
+
+4. 变更核对：`开始变更窗口` 采集变更前快照 → 人工在设备上变更 → `完成核对` 采集变更后快照，
+   自动输出前后差异与规则结果。
+
+| 方法 | 路径 | 作用 |
+| --- | --- | --- |
+| PUT/GET | `/api/devices/{id}/target` | 配置 / 查看 SSH 目标（不含密码） |
+| POST | `/api/devices/{id}/collect` | 采集一次配置并生成版本 |
+| POST | `/api/devices/{id}/change-runs` | 开始变更窗口（采集变更前快照） |
+| POST | `/api/change-runs/{id}/complete` | 采集变更后快照并核对 |
+| GET | `/api/devices/{id}/change-runs` | 变更核对历史 |
+
+边界：SSH 采集只对**假设备**做过自动化验证，没有在真机跑过；默认不校验主机指纹（可用 `NETCFG_SSH_STRICT_HOST_KEY=true` 开启）；
+分页/提示符处理只覆盖常见情况，真机需要按厂商核对。
+
 ## 容器部署
 
 ```bash

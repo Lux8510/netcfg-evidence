@@ -34,7 +34,7 @@ def free_port() -> int:
 def server(tmp_path):
     port = free_port()
     env = {**os.environ, "NETCFG_DATABASE_URL": f"sqlite:///{tmp_path / 'e2e.db'}",
-           "EXPLAIN_PROVIDER": "mock"}
+           "EXPLAIN_PROVIDER": "mock", "NETCFG_TEST_SSH_PASSWORD": "e2e-ssh-secret"}
     subprocess.run([sys.executable, "scripts/create_user.py", "--username", E2E_USER, "--role", "admin"],
                    cwd=ROOT, env={**env, "NETCFG_USER_PASSWORD": E2E_PASSWORD}, check=True,
                    capture_output=True, text=True)
@@ -345,3 +345,32 @@ def test_theme_toggle_persists(page, server):
     assert page.evaluate("document.documentElement.dataset.theme") == "light"
     page.click("[data-testid=theme-toggle]")
     page.wait_for_function("() => document.documentElement.dataset.theme === 'dark'")
+
+
+def test_ssh_change_verification_flow(page, server, fake_device):
+    state, ssh_port = fake_device
+    state.password = "e2e-ssh-secret"
+
+    page.goto(server)
+    create_device(page, "ssh-ui")
+    page.fill("[data-testid=target-host]", "127.0.0.1")
+    page.fill("[data-testid=target-port]", str(ssh_port))
+    page.fill("[data-testid=target-username]", "netops")
+    page.fill("[data-testid=target-credential]", "NETCFG_TEST_SSH_PASSWORD")
+    page.click("[data-testid=target-save]")
+    page.wait_for_function("() => !document.querySelector('[data-testid=collect-now]').disabled")
+
+    page.click("[data-testid=collect-now]")
+    page.wait_for_selector("[data-testid=version-list] :text('ssh:manual')")
+
+    page.click("[data-testid=start-change]")
+    page.fill("[data-testid=change-note]", "变更窗口：调整 eth2 的 OSPF cost 后核对")
+    page.click("[data-testid=change-submit]")
+    page.wait_for_selector("[data-testid=change-runs] :text('open')")
+
+    state.outputs["show running-config"] = BASELINE.replace(" ip ospf cost 10", " ip ospf cost 20")
+    page.click("[data-testid=complete-change]")
+    page.fill("[data-testid=change-note]", "变更后采集并核对差异")
+    page.click("[data-testid=change-submit]")
+    page.wait_for_selector("[data-testid=change-runs] :text('completed')")
+    assert "interface.eth2.ospf.cost" in page.inner_text("[data-testid=change-runs]")

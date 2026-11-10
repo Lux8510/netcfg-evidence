@@ -77,6 +77,27 @@ class RevokeBody(StrictBody):
     actor: str = Field(default="", max_length=200)  # ignored: identity comes from the session
 
 
+class TargetBody(StrictBody):
+    host: str = Field(min_length=1, max_length=255)
+    port: int = Field(default=22, ge=1, le=65535)
+    username: str = Field(min_length=1, max_length=80)
+    credential_ref: str | None = Field(default=None, max_length=120)
+    key_path: str | None = Field(default=None, max_length=255)
+    enabled: bool = True
+
+
+class CollectBody(StrictBody):
+    label: str = Field(default="manual", min_length=1, max_length=60)
+
+
+class ChangeRunBody(StrictBody):
+    note: str = Field(min_length=10, max_length=1000)
+
+
+class CompleteChangeBody(StrictBody):
+    note: str = Field(min_length=1, max_length=1000)
+
+
 class LinkBody(StrictBody):
     device_a_id: str = Field(min_length=36, max_length=36)
     iface_a: str = Field(min_length=1, max_length=80)
@@ -370,6 +391,51 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     def delete_link(link_id: str, db: Session = Depends(get_db)):
         service.delete_link(db, link_id)
         return Response(status_code=204)
+
+    @app.put("/api/devices/{device_id}/target")
+    def set_target(device_id: str, body: TargetBody, db: Session = Depends(get_db)):
+        from domain.netcfg import collection
+        target = collection.set_target(db, device_id, host=body.host, port=body.port,
+                                       username=body.username, credential_ref=body.credential_ref,
+                                       key_path=body.key_path, enabled=body.enabled)
+        return ok(collection.target_payload(target))
+
+    @app.get("/api/devices/{device_id}/target")
+    def get_target(device_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import collection
+        target = collection.get_target(db, device_id)
+        return ok(collection.target_payload(target) if target else None)
+
+    @app.post("/api/devices/{device_id}/collect", status_code=201)
+    def collect_device(device_id: str, body: CollectBody, db: Session = Depends(get_db)):
+        from domain.netcfg import collection
+        version, event = collection.collect_device(db, device_id, body.label)
+        return ok({"version": service.version_payload(version),
+                   "event": collection.collection_payload(event)})
+
+    @app.post("/api/devices/{device_id}/change-runs", status_code=201)
+    def start_change_run(device_id: str, body: ChangeRunBody, request: Request,
+                         db: Session = Depends(get_db)):
+        from domain.netcfg import collection
+        run = collection.start_change_run(db, device_id, body.note, request.state.user.username)
+        return ok(collection.change_run_payload(db, run))
+
+    @app.post("/api/change-runs/{run_id}/complete")
+    def complete_change_run(run_id: str, body: CompleteChangeBody, db: Session = Depends(get_db)):
+        from domain.netcfg import collection
+        run = collection.complete_change_run(db, run_id, body.note)
+        return ok(collection.change_run_payload(db, run))
+
+    @app.get("/api/devices/{device_id}/change-runs")
+    def list_change_runs(device_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import collection
+        return ok([collection.change_run_payload(db, run)
+                   for run in collection.list_change_runs(db, device_id)])
+
+    @app.get("/api/change-runs/{run_id}")
+    def get_change_run(run_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import collection
+        return ok(collection.change_run_payload(db, collection.get_change_run(db, run_id)))
 
     @app.post("/api/devices/{device_id}/change-requests", status_code=201)
     def create_change_request(device_id: str, body: ChangeRequestBody, request: Request,

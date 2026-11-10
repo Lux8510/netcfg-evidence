@@ -90,6 +90,16 @@ def anon_client(api_app):
 
 
 @pytest.fixture()
+def fake_device():
+    from tests.fake_ssh import FakeDeviceState, start, stop
+
+    state = FakeDeviceState()
+    port = start(state)
+    yield state, port
+    stop(state)
+
+
+@pytest.fixture()
 def r1_text() -> str:
     return (SAMPLES / "r1.conf").read_text(encoding="utf-8")
 

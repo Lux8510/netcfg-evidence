@@ -256,3 +256,64 @@ def _register_guards() -> None:
 
 
 _register_guards()
+
+
+class DeviceTarget(Base):
+    """How to reach a device. Secrets are referenced by env var name, never stored."""
+
+    __tablename__ = "device_targets"
+
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), primary_key=True)
+    host: Mapped[str] = mapped_column(String(255), nullable=False)
+    port: Mapped[int] = mapped_column(Integer, nullable=False, default=22)
+    username: Mapped[str] = mapped_column(String(80), nullable=False)
+    credential_ref: Mapped[str | None] = mapped_column(String(120))
+    key_path: Mapped[str | None] = mapped_column(String(255))
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (CheckConstraint("port BETWEEN 1 AND 65535", name="ck_target_port"),)
+
+
+class CollectionEvent(Base):
+    __tablename__ = "collection_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    label: Mapped[str] = mapped_column(String(120), nullable=False)
+    target_host: Mapped[str] = mapped_column(String(255), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    commands: Mapped[list] = mapped_column(JSON, nullable=False)
+    version_id: Mapped[str | None] = mapped_column(ForeignKey("config_versions.id", ondelete="SET NULL"))
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    finished_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (CheckConstraint("status IN ('success','failed')", name="ck_collection_status"),)
+
+
+class ChangeRun(Base):
+    """Before/after snapshots around a human change window."""
+
+    __tablename__ = "change_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    note: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="open")
+    before_version_id: Mapped[str] = mapped_column(ForeignKey("config_versions.id"), nullable=False)
+    after_version_id: Mapped[str | None] = mapped_column(ForeignKey("config_versions.id"))
+    diff_items: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    diff_summary: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    findings: Mapped[list] = mapped_column(JSON, nullable=False, default=list)
+    findings_counts: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(60))
+    error_message: Mapped[str | None] = mapped_column(Text)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (CheckConstraint("status IN ('open','completed','failed')", name="ck_change_run_status"),)

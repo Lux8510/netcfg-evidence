@@ -48,6 +48,24 @@ export type Explanation = {
   model: string; citations: { rule_id: string; lines: number[] }[];
   usage: { prompt_tokens?: number; completion_tokens?: number } | null; created_at: string;
 };
+export type DeviceTarget = {
+  device_id: string; host: string; port: number; username: string;
+  credential_ref: string | null; key_path: string | null; enabled: boolean; updated_at: string;
+};
+export type CollectionEvent = {
+  id: string; status: 'success' | 'failed'; error_code: string | null; error_message: string | null;
+  version_id: string | null; commands: { command: string; exit_code: number; bytes: number }[];
+  started_at: string; finished_at: string;
+};
+export type ChangeRun = {
+  id: string; device_id: string; note: string; status: 'open' | 'completed' | 'failed';
+  created_by: string; created_at: string; completed_at: string | null;
+  before: { id: string; source_name: string; created_at: string } | null;
+  after: { id: string; source_name: string; created_at: string } | null;
+  diff_summary: Record<string, number>; diff_items: { path: string; kind: string }[];
+  findings: { rule_id: string; status: string; message: string }[];
+  findings_counts: Record<string, number>; error_code: string | null; error_message: string | null;
+};
 export type Link = {
   id: string;
   device_a: { id: string; name: string; interface: string };

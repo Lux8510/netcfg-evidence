@@ -5,7 +5,7 @@ import {
   LogOut, Network, Plus, RefreshCw, ShieldCheck, Sparkles, Upload, Wallet,
 } from 'lucide-react';
 import {
-  api, type AuditRow, type ChangeRequest, type Device, type DriftItem, type DriftReport,
+  api, type AuditRow, type ChangeRequest, type ChangeRun, type Device, type DeviceTarget, type DriftItem, type DriftReport,
   type Exemption, type Explanation, type Finding, type Link, type RuleCheck, type User, type Version,
 } from '../lib/api';
 import { diffRows } from '../lib/diff';
@@ -33,6 +33,9 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
   const [links, setLinks] = useState<Link[]>([]);
   const [explanations, setExplanations] = useState<Explanation[]>([]);
   const [audit, setAudit] = useState<AuditRow[]>([]);
+  const [target, setTarget] = useState<DeviceTarget | null>(null);
+  const [changeRuns, setChangeRuns] = useState<ChangeRun[]>([]);
+  const [changeDialog, setChangeDialog] = useState<{ mode: 'start' | 'complete'; runId?: string } | null>(null);
   const [busy, setBusy] = useState('');
   const [includeCross, setIncludeCross] = useState(true);
 
@@ -54,9 +57,11 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
     // Clear first: the previous device's data must never be shown under the new selection.
     setVersions([]); setBaseline(null); setDrift(null); setRuleCheck(null);
     setChanges([]); setLinks([]); setExplanations([]); setAudit([]);
+    setTarget(null); setChangeRuns([]);
     if (!id) return;
     const stale = () => seq !== loadSeq.current || deviceRef.current !== id;
-    const [nextVersions, nextBaseline, nextDrift, nextChanges, nextLinks, nextExplain, nextAudit] = await Promise.all([
+    const [nextVersions, nextBaseline, nextDrift, nextChanges, nextLinks, nextExplain, nextAudit,
+      nextTarget, nextChangeRuns] = await Promise.all([
       api<Version[]>(`/devices/${id}/configs`),
       api<{ config_version_id: string } | null>(`/devices/${id}/baseline`),
       api<DriftReport[]>(`/devices/${id}/drift`),
@@ -64,6 +69,8 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
       api<Link[]>('/links'),
       api<Explanation[]>(`/devices/${id}/explanations`),
       api<AuditRow[]>(`/devices/${id}/audit`),
+      api<DeviceTarget | null>(`/devices/${id}/target`),
+      api<ChangeRun[]>(`/devices/${id}/change-runs`),
     ]);
     if (stale()) return;
     setVersions(nextVersions);
@@ -73,6 +80,8 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
     setLinks(nextLinks);
     setExplanations(nextExplain);
     setAudit(nextAudit);
+    setTarget(nextTarget);
+    setChangeRuns(nextChangeRuns);
 
     const runs = await api<{ run_id: string; counts: Record<string, number>; config_version_id: string }[]>(
       `/devices/${id}/rules/runs`);
@@ -188,6 +197,34 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
     toast.push(`生成 ${rows.length} 条解释`, 'ok');
   });
 
+  const saveTarget = (fields: { host: string; port: number; username: string; credential_ref: string }) =>
+    run('正在保存采集目标…', async () => {
+      const saved = await api<DeviceTarget>(`/devices/${deviceId}/target`, { method: 'PUT', body: { ...fields, enabled: true } });
+      setTarget(saved);
+      toast.push('SSH 目标已保存；密码来自服务端环境变量', 'ok');
+    });
+
+  const collectNow = () => run('正在通过 SSH 采集…', async () => {
+    const result = await api<{ version: Version; event: { status: string } }>(
+      `/devices/${deviceId}/collect`, { body: { label: 'manual' } });
+    await loadDeviceData(deviceId);
+    toast.push(`采集完成：${result.version.source_name}`, 'ok');
+  });
+
+  const startChange = (note: string) => run('正在采集变更前快照…', async () => {
+    await api(`/devices/${deviceId}/change-runs`, { body: { note } });
+    await loadDeviceData(deviceId);
+    setChangeDialog(null);
+    toast.push('变更窗口已开始，变更后点击「完成核对」', 'ok');
+  });
+
+  const completeChange = (runId: string, note: string) => run('正在采集变更后快照…', async () => {
+    await api(`/change-runs/${runId}/complete`, { body: { note } });
+    await loadDeviceData(deviceId);
+    setChangeDialog(null);
+    toast.push('变更核对完成', 'ok');
+  });
+
   const logout = async () => {
     await fetch('/api/auth/logout', { method: 'POST' });
     onLogout();
@@ -234,6 +271,13 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
         </Reveal>
 
         <Reveal className="col-span-12" delay={0.14}>
+          <ChangeVerifyCard target={target} runs={changeRuns} busy={busy}
+                            onSaveTarget={saveTarget} onCollect={collectNow}
+                            onStart={() => setChangeDialog({ mode: 'start' })}
+                            onComplete={(runId) => setChangeDialog({ mode: 'complete', runId })} />
+        </Reveal>
+
+        <Reveal className="col-span-12" delay={0.16}>
           <ExplainCard rows={explanations} busy={busy} onGenerate={generateExplanation} />
         </Reveal>
       </main>
@@ -244,6 +288,12 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
                     onSubmit={createChange} />
       <NoteDialog target={noteFor} onClose={() => setNoteFor(null)} onSubmit={transition} />
       <ExemptDialog item={exemptFor} onClose={() => setExemptFor(null)} onSubmit={createExemption} />
+      <ChangeNoteDialog target={changeDialog} onClose={() => setChangeDialog(null)}
+                        onSubmit={(note) => {
+                          if (!changeDialog) return;
+                          if (changeDialog.mode === 'start') startChange(note);
+                          else if (changeDialog.runId) completeChange(changeDialog.runId, note);
+                        }} />
     </div>
   );
 }
@@ -819,6 +869,111 @@ function ExemptDialog({ item, onClose, onSubmit }: {
           登记豁免
         </Button>
       </div>
+    </Dialog>
+  );
+}
+
+/* ---------------- SSH collection + change verification ---------------- */
+function ChangeVerifyCard({ target, runs, busy, onSaveTarget, onCollect, onStart, onComplete }: {
+  target: DeviceTarget | null; runs: ChangeRun[]; busy: string;
+  onSaveTarget: (fields: { host: string; port: number; username: string; credential_ref: string }) => void;
+  onCollect: () => void;
+  onStart: () => void;
+  onComplete: (runId: string) => void;
+}) {
+  const [host, setHost] = useState(target?.host ?? '');
+  const [port, setPort] = useState(String(target?.port ?? 22));
+  const [username, setUsername] = useState(target?.username ?? '');
+  const [credentialRef, setCredentialRef] = useState(target?.credential_ref ?? '');
+  useEffect(() => {
+    setHost(target?.host ?? '');
+    setPort(String(target?.port ?? 22));
+    setUsername(target?.username ?? '');
+    setCredentialRef(target?.credential_ref ?? '');
+  }, [target]);
+  const open = runs.filter((run) => run.status === 'open');
+  const portNumber = Number(port);
+  const valid = host.trim() && username.trim() && Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
+  return (
+    <Card>
+      <CardHeader title="SSH 采集与变更核对" hint="只读命令白名单；变更前/后各采一次快照，比较差异并重跑规则"
+                  action={<div className="flex gap-1.5">
+                    <Button size="sm" variant="ghost" disabled={!!busy || !target} onClick={onCollect} data-testid="collect-now">
+                      <RefreshCw size={13} /> 采集当前配置
+                    </Button>
+                    <Button size="sm" variant="primary" disabled={!!busy || !target} onClick={onStart} data-testid="start-change">
+                      <GitBranch size={13} /> 开始变更窗口
+                    </Button>
+                  </div>} />
+      <div className="grid gap-2 sm:grid-cols-5">
+        <Field label="主机"><Input value={host} onChange={(event) => setHost(event.target.value)} data-testid="target-host" placeholder="10.0.0.1 或 127.0.0.1" /></Field>
+        <Field label="端口"><Input value={port} onChange={(event) => setPort(event.target.value)} data-testid="target-port" /></Field>
+        <Field label="用户名"><Input value={username} onChange={(event) => setUsername(event.target.value)} data-testid="target-username" /></Field>
+        <Field label="密码环境变量" hint="只存变量名，不存密码">
+          <Input value={credentialRef} onChange={(event) => setCredentialRef(event.target.value)} data-testid="target-credential" placeholder="NETCFG_SSH_PASSWORD" />
+        </Field>
+        <div className="flex items-end">
+          <Button variant="outline" className="w-full" disabled={!!busy || !valid} data-testid="target-save"
+                  onClick={() => onSaveTarget({ host: host.trim(), port: portNumber, username: username.trim(), credential_ref: credentialRef.trim() })}>
+            保存目标
+          </Button>
+        </div>
+      </div>
+      <p className="mt-2 text-[11px] text-muted">
+        服务器只执行 <code className="mono">show running-config</code> 等白名单命令；密码从后端环境变量读取，接口不回显。
+      </p>
+      <div className="mt-3 space-y-2" data-testid="change-runs">
+        {runs.length === 0 && <EmptyState title="还没有变更核对" hint="配置目标后点「开始变更窗口」" />}
+        {runs.slice(0, 5).map((run) => (
+          <article key={run.id} className="rounded-xl border border-line bg-panel-2 p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={run.status === 'completed' ? 'ok' : run.status === 'failed' ? 'danger' : 'warn'}>{run.status}</Badge>
+              <span className="text-[11px] text-muted">{when(run.created_at)} · {run.created_by}</span>
+              {run.status === 'open' && (
+                <Button size="sm" variant="ghost" disabled={!!busy} data-testid="complete-change"
+                        onClick={() => onComplete(run.id)}>完成核对</Button>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-fg/90">{run.note}</p>
+            {run.status === 'completed' && (
+              <>
+                <p className="mt-1 text-[11px] text-muted">
+                  差异 {run.diff_items.length} 项 · 规则：违规 {run.findings_counts.findings_violated ?? 0}、无法判定 {run.findings_counts.findings_undetermined ?? 0}
+                </p>
+                {run.diff_items.length > 0 && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    {run.diff_items.slice(0, 6).map((item) => (
+                      <code key={item.path} className="mono rounded bg-panel px-1.5 py-0.5 text-[10px]">{item.path}</code>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+            {run.status === 'failed' && <p className="mt-1 text-[11px] text-danger">{run.error_message}</p>}
+          </article>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function ChangeNoteDialog({ target, onClose, onSubmit }: {
+  target: { mode: 'start' | 'complete'; runId?: string } | null;
+  onClose: () => void; onSubmit: (note: string) => void;
+}) {
+  const [note, setNote] = useState('');
+  useEffect(() => {
+    setNote(target?.mode === 'start' ? '变更窗口：调整接口 OSPF cost，变更后核对差异' : '变更后采集并核对：确认差异与规则结果');
+  }, [target]);
+  return (
+    <Dialog open={!!target} onClose={onClose} title={target?.mode === 'start' ? '开始变更窗口' : '完成变更核对'}>
+      <Field label="说明（至少 10 字，写入记录）">
+        <Textarea rows={3} value={note} onChange={(event) => setNote(event.target.value)} data-testid="change-note" />
+      </Field>
+      <Button variant="primary" className="mt-3 w-full" disabled={note.trim().length < 10} data-testid="change-submit"
+              onClick={() => onSubmit(note.trim())}>
+        {target?.mode === 'start' ? '采集变更前快照' : '采集变更后快照并核对'}
+      </Button>
     </Dialog>
   );
 }

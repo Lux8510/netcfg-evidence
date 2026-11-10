@@ -29,8 +29,8 @@ FORBIDDEN_DEVICE_MODULES = {
 }
 
 
-def test_claim_never_connects_to_devices():
-    """README: 不连接设备、不下发配置。"""
+def test_claim_business_layer_never_connects_to_devices():
+    """README: 业务层不连接设备；只有 collectors/ 允许只读 SSH。"""
     offenders = []
     for folder in ("domain", "engine", "api"):
         for path in (ROOT / folder).rglob("*.py"):
@@ -97,3 +97,20 @@ def test_claim_explanation_never_changes_the_verdict(app_client, r1_text):
     app_client.post(f"/api/devices/{device_id}/explanations", json={"run_id": run["run_id"]})
     findings = app_client.get(f"/api/devices/{device_id}/findings", params={"run_id": run["run_id"]}).json()["data"]
     assert [(row["rule_id"], row["status"]) for row in findings] == [("R001", "violated")]
+
+
+def test_only_collectors_import_ssh_clients():
+    offenders = []
+    for folder in ("domain", "engine", "api", "scripts", "evals"):
+        for path in (ROOT / folder).rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            if "paramiko" in text or "netmiko" in text or "ncclient" in text:
+                offenders.append(str(path.relative_to(ROOT)))
+    assert offenders == []
+    assert (ROOT / "collectors/ssh.py").exists()
+
+
+def test_collector_has_no_arbitrary_shell():
+    source = (ROOT / "collectors/ssh.py").read_text(encoding="utf-8")
+    for forbidden in ("subprocess", "os.system", "shell=True", "exec("):
+        assert forbidden not in source
