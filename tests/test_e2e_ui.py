@@ -440,5 +440,5 @@ def test_evidence_spine_links_drift_and_rule_evidence(page, server):
 
     # Clicking the line opens the evidence dialog at that line.
     page.locator("[data-testid=drift-item] [data-testid=spine-line]").first.click()
-    page.wait_for_selector("[data-testid=evidence-body]")
-    assert "ip ospf cost 30" in page.inner_text("[data-testid=evidence-body]")
+    page.wait_for_function("() => document.querySelector('[data-testid=evidence-body]')"
+                           "?.textContent?.includes('ip ospf cost 30')")
