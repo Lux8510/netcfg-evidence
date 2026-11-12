@@ -11,7 +11,7 @@ import {
 import { diffRows } from '../lib/diff';
 import { cn, shortId, when } from '../lib/utils';
 import {
-  Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Reveal, Select, Textarea, ThemeToggle, useToast,
+  Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Select, Stagger, StaggerItem, Textarea, ThemeToggle, useToast,
 } from '../components/ui';
 
 const statusTone: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
@@ -256,19 +256,20 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
       <Header user={user} devices={devices} deviceId={deviceId} onSelect={setDeviceId}
               onCreate={createDevice} onLogout={logout} busy={!!busy} />
 
-      <main className="mt-5 grid grid-cols-12 gap-4">
-        <Reveal className="col-span-12 xl:col-span-4">
+      <main>
+        <Stagger className="mt-5 grid grid-cols-12 gap-4">
+        <StaggerItem className="col-span-12 xl:col-span-4">
           <VersionsCard versions={versions} baseline={baseline} busy={busy}
                         onImport={importConfig} onBaseline={setAsBaseline} onShow={setEvidence} />
-        </Reveal>
+        </StaggerItem>
 
-        <Reveal className="col-span-12 xl:col-span-8" delay={0.04}>
+        <StaggerItem className="col-span-12 xl:col-span-8">
           <DriftCard report={drift} busy={busy} onCompute={computeDrift}
                      onDiff={(base, current) => setDiffTarget({ base, current })}
                      onExempt={setExemptFor} onRevoke={revokeExemption} onShow={setEvidence} />
-        </Reveal>
+        </StaggerItem>
 
-        <Reveal className="col-span-12 lg:col-span-7" delay={0.06}>
+        <StaggerItem className="col-span-12 lg:col-span-7">
           <RulesCard check={ruleCheck} busy={busy} includeCross={includeCross}
                      onToggleCross={setIncludeCross} onRun={checkRules}
                      onEvidence={(finding, item) => setEvidence({
@@ -276,31 +277,32 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
                        line: item.line as number,
                        title: `${finding.rule_id} 证据` })}
                      onGenerate={setChangeFor} />
-        </Reveal>
+        </StaggerItem>
 
-        <Reveal className="col-span-12 lg:col-span-5" delay={0.08}>
+        <StaggerItem className="col-span-12 lg:col-span-5">
           <TopologyCard links={deviceLinks} currentId={deviceId} onSelect={setDeviceId} />
-        </Reveal>
+        </StaggerItem>
 
-        <Reveal className="col-span-12 lg:col-span-7" delay={0.1}>
+        <StaggerItem className="col-span-12 lg:col-span-7">
           <ChangesCard changes={changes} busy={busy}
                        onAction={(requestId, action) => setNoteFor({ requestId, action })} />
-        </Reveal>
+        </StaggerItem>
 
-        <Reveal className="col-span-12 lg:col-span-5" delay={0.12}>
+        <StaggerItem className="col-span-12 lg:col-span-5">
           <AuditCard rows={audit} />
-        </Reveal>
+        </StaggerItem>
 
-        <Reveal className="col-span-12" delay={0.14}>
+        <StaggerItem className="col-span-12">
           <ChangeVerifyCard key={deviceId} target={target} runs={changeRuns} busy={busy}
                             onSaveTarget={saveTarget} onCollect={collectNow}
                             onStart={() => setChangeDialog({ mode: 'start' })}
                             onComplete={(runId) => setChangeDialog({ mode: 'complete', runId })} />
-        </Reveal>
+        </StaggerItem>
 
-        <Reveal className="col-span-12" delay={0.16}>
+        <StaggerItem className="col-span-12">
           <ExplainCard rows={explanations} busy={busy} onGenerate={generateExplanation} />
-        </Reveal>
+          </StaggerItem>
+        </Stagger>
       </main>
 
       <DiffDialog target={diffTarget} onClose={() => setDiffTarget(null)} />
@@ -328,7 +330,7 @@ function Header({ user, devices, deviceId, onSelect, onCreate, onLogout, busy }:
   return (
     <header className="glass noise flex flex-col gap-3 px-4 py-3 md:flex-row md:items-center md:justify-between">
       <div className="flex items-center gap-2.5">
-        <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_18px_rgba(106,166,255,.9)]" />
+        <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_10px_rgba(106,166,255,.45)]" />
         <div>
           <p className="text-sm font-semibold tracking-wide">netcfg-evidence</p>
           <p className="text-[11px] text-muted">配置基线 · 漂移 · 证据链</p>
@@ -336,20 +338,24 @@ function Header({ user, devices, deviceId, onSelect, onCreate, onLogout, busy }:
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Select value={deviceId} onChange={(event) => onSelect(event.target.value)} data-testid="device-select"
-                aria-label="选择设备" className="w-[200px]">
+                aria-label="选择设备" className="w-full sm:w-[200px]">
           {devices.length === 0 && <option value="">还没有设备</option>}
           {devices.map((device) => <option key={device.id} value={device.id}>{device.name}</option>)}
         </Select>
-        <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="新设备名"
-               className="w-[140px]" data-testid="device-name" />
-        <Button variant="ghost" size="sm" disabled={busy || !name.trim()} data-testid="create-device"
-                onClick={() => { onCreate(name.trim()); setName(''); }}>
-          <Plus size={14} /> 新增
-        </Button>
-        <div className="mx-1 hidden h-6 w-px bg-white/10 md:block" />
-        <span className="text-xs text-muted" data-testid="user-label">{user.username} · {user.role}</span>
-        <ThemeToggle />
-        <Button variant="ghost" size="sm" onClick={onLogout} data-testid="logout"><LogOut size={14} /> 退出</Button>
+        <div className="flex w-full items-center gap-2 sm:w-auto">
+          <Input value={name} onChange={(event) => setName(event.target.value)} placeholder="新设备名"
+                 className="min-w-0 flex-1 sm:w-[140px] sm:flex-none" data-testid="device-name" />
+          <Button variant="ghost" size="sm" disabled={busy || !name.trim()} data-testid="create-device"
+                  onClick={() => { onCreate(name.trim()); setName(''); }}>
+            <Plus size={14} /> 新增
+          </Button>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="mx-1 hidden h-6 w-px bg-white/10 md:block" />
+          <span className="text-xs text-muted" data-testid="user-label">{user.username} · {user.role}</span>
+          <ThemeToggle />
+          <Button variant="ghost" size="sm" onClick={onLogout} data-testid="logout"><LogOut size={14} /> 退出</Button>
+        </div>
       </div>
     </header>
   );

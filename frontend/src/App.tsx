@@ -46,6 +46,7 @@ export default function App() {
 
   return (
     <ToastProvider>
+      <div className="mesh" aria-hidden />
       {withScene && (
         <Suspense fallback={null}>
           <Scene />

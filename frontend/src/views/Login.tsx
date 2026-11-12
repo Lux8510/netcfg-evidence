@@ -35,7 +35,7 @@ export default function Login({ onLogin }: { onLogin: (user: User) => void }) {
       >
         <div className="mb-6 flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_18px_rgba(106,166,255,.9)]" />
+            <span className="h-2 w-2 rounded-full bg-accent shadow-[0_0_10px_rgba(106,166,255,.45)]" />
             <span className="text-sm font-semibold tracking-wide">netcfg-evidence</span>
           </div>
           <ThemeToggle />

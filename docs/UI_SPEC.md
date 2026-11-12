@@ -1,0 +1,76 @@
+# 界面设计规范对照
+
+这份文档把「极简、科技、产品感」拆成可检查的条目，逐条对应实现位置。
+不是设计宣言，是验收清单：每条都能在代码里指到具体类名或组件。
+
+## 1. 布局与结构
+
+| 要求 | 实现 | 位置 |
+|---|---|---|
+| Tailwind CSS 响应式布局 | 12 列栅格 + `sm/md/lg/xl` 断点 | `views/Dashboard.tsx` |
+| Bento Grid / Dashboard | 4/8、7/5、12 列错落卡片，非等宽平铺 | `Stagger className="grid grid-cols-12"` |
+| 信息层级清晰 | 标题 14px / 正文 12–13px / 辅助 11px，三级字号 | `CardHeader`、`.label` |
+| 留白充足 | 卡片内边距 20px，卡片间距 16px，页面最大宽 1440px | `Card`、`main` |
+
+## 2. 视觉与质感
+
+| 要求 | 实现 | 位置 |
+|---|---|---|
+| 细边框 | 1px `--color-line`，深浅主题各一套 | `.glass` |
+| 轻阴影 | 只有一层 ambient 阴影 + 一条内高光，无多层堆叠 | `.glass` |
+| backdrop-blur | 卡片 `backdrop-blur-xl`，弹窗背景 `backdrop-blur-sm` | `.glass`、`Dialog` |
+| 噪点纹理 | 内联 SVG `feTurbulence`，透明度 0.35，浅色主题降到 0.18 | `.noise::after` |
+| 渐变网格 | 一层固定 `.mesh`（radial ×2 + conic），透明度 ≤ 0.09，无动画 | `index.css`、`App.tsx` |
+
+## 3. 动效
+
+| 要求 | 实现 | 位置 |
+|---|---|---|
+| hover feedback | 边框提亮 + 上移 1px，300ms | `.glass-hover` |
+| scroll reveal | `whileInView` + `once`，位移 14px | `Stagger` / `Reveal` |
+| stagger animation | 子项间隔 55ms，容器只触发一次 | `staggerParent` |
+| smooth transition | 统一 `cubic-bezier(.22,1,.36,1)`，450ms | `staggerChild` |
+| 克制、有呼吸感 | 无循环动画（除加载点）、无弹跳、减少动效时全部关闭 | `useReducedMotion` |
+
+## 4. 3D 与空间感
+
+| 要求 | 实现 | 位置 |
+|---|---|---|
+| Three.js / R3F 背景 | 900 点粒子场 + 线框二十面体 + 细环 | `components/Scene.tsx` |
+| 作为氛围 | 固定背景、`-z-10`、透明度 0.7/浅色 0.32、不接收指针 | `.scene` |
+| 不抢主体 | 窄屏（<900px）和 `prefers-reduced-motion` 时不加载 | `App.tsx` |
+
+## 5. 组件与产品感
+
+| 组件 | 实现 | 位置 |
+|---|---|---|
+| Button | primary / outline / ghost / danger，两档尺寸 | `ui.tsx` |
+| Card | 统一玻璃容器 + 标题栏 | `Card`、`CardHeader` |
+| Input / Select / Textarea | 同一套边框、聚焦环、错误态 | `fieldClass` |
+| Modal | 焦点陷阱、Esc 关闭、焦点归还、弹簧入场 | `Dialog` |
+| Toast | 右下堆叠、4.2s 自动消失、`aria-live` | `ToastProvider` |
+| Empty State | 虚线边框 + 图标 + 说明 | `EmptyState` |
+
+## 6. 整体风格
+
+- 定位：工具型产品，不是营销页；首屏就是可操作的工作台。
+- 重点：漂移和规则结果占最大面积，版本与审计为辅助列。
+- 动效：只在进入、悬停、弹窗出现时发生，不做装饰性循环。
+
+## 7. 禁止项自查
+
+| 禁止 | 现状 |
+|---|---|
+| 过度渐变 | 只有一层低透明度 mesh，无卡片内渐变 |
+| 廉价发光 | 圆点光晕已从 18px/0.9 降到 10px/0.45；按钮阴影只用于主操作 |
+| 大圆角堆叠 | 卡片 16px、输入 8px、徽章全圆，层级不叠加 |
+| 信息过满 | 每张卡只放一个任务；原始配置进弹窗，不铺在首屏 |
+
+## 验证方式
+
+```bash
+cd frontend && npm run build      # 产物必须与 web/ 一致
+make e2e                          # 15 项真实浏览器测试
+```
+
+截图：`docs/ui-dashboard.png`（深色）、`docs/ui-dashboard-light.png`（浅色）、`docs/ui-topology.png`。

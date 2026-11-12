@@ -64,8 +64,16 @@
   [data-theme="light"] .glass {
     box-shadow: 0 1px 0 rgba(255,255,255,.6) inset, 0 18px 40px -32px rgba(15,23,42,.35);
   }
-  .glass-hover { @apply transition-colors duration-300; }
-  .glass-hover:hover { border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-line)); }
+  .glass-hover {
+    transition: border-color .3s ease, transform .3s ease, box-shadow .3s ease;
+  }
+  .glass-hover:hover {
+    border-color: color-mix(in srgb, var(--color-accent) 32%, var(--color-line));
+    transform: translateY(-1px);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .glass-hover:hover { transform: none; }
+  }
   [data-theme="light"] .noise::after { opacity: .18; }
   [data-theme="light"] .scene { opacity: .32; }
   .noise::after {
@@ -77,3 +85,18 @@
   .label { @apply text-[11px] uppercase tracking-[0.14em] text-muted; }
   .mono { font-family: var(--font-mono); }
 }
+
+/* Ambient mesh: one low-contrast layer, no animation. */
+.mesh {
+  position: fixed;
+  inset: 0;
+  z-index: -20;
+  pointer-events: none;
+  opacity: .55;
+  background-image:
+    radial-gradient(42rem 28rem at 16% 6%, rgba(106,166,255,.09), transparent 62%),
+    radial-gradient(32rem 24rem at 84% 2%, rgba(62,207,142,.06), transparent 60%),
+    conic-gradient(from 210deg at 62% 42%, rgba(106,166,255,.045), transparent 24%, rgba(62,207,142,.035) 46%, transparent 68%);
+  mask-image: linear-gradient(to bottom, #000 0%, transparent 78%);
+}
+[data-theme="light"] .mesh { opacity: .4; }

@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { Moon, Sun, X } from 'lucide-react';
+import { ChevronDown, Inbox, Moon, Sun, X } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 /* ---------- Button ---------- */
@@ -13,10 +13,10 @@ export function Button({ className, variant = 'outline', size = 'md', ...props }
     <button
       {...props}
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 rounded-lg font-medium transition-all duration-200',
+        'inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-lg font-medium transition-all duration-200',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-40 disabled:pointer-events-none',
         size === 'sm' ? 'h-8 px-3 text-xs' : 'h-9 px-4 text-sm',
-        variant === 'primary' && 'bg-accent text-ink hover:bg-[#8ab9ff] shadow-[0_10px_30px_-12px_rgba(106,166,255,.8)]',
+        variant === 'primary' && 'bg-accent text-ink hover:bg-[#8ab9ff] shadow-[0_6px_20px_-14px_rgba(106,166,255,.9)]',
         variant === 'outline' && 'border border-line bg-panel text-fg hover:border-accent/40 hover:bg-panel',
         variant === 'ghost' && 'text-fg/90 hover:bg-panel hover:text-white',
         variant === 'danger' && 'border border-danger/40 text-danger hover:bg-danger/10',
@@ -57,11 +57,11 @@ export function Card({ className, children, ...props }: React.HTMLAttributes<HTM
 export function CardHeader({ title, hint, action }: { title: string; hint?: string; action?: ReactNode }) {
   return (
     <div className="mb-4 flex items-start justify-between gap-3">
-      <div>
+      <div className="min-w-0">
         <h2 className="text-sm font-semibold tracking-wide text-fg">{title}</h2>
         {hint && <p className="mt-1 text-xs leading-relaxed text-muted">{hint}</p>}
       </div>
-      {action}
+      {action && <div className="shrink-0">{action}</div>}
     </div>
   );
 }
@@ -77,8 +77,14 @@ export function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
 export function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
   return <textarea {...props} className={cn(fieldClass, 'font-mono text-xs leading-relaxed', props.className)} />;
 }
-export function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return <select {...props} className={cn(fieldClass, 'appearance-none', props.className)} />;
+export function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <span className={cn('relative block', className)}>
+      <select {...props} className={cn(fieldClass, 'w-full appearance-none pr-9')} />
+      <ChevronDown size={14} aria-hidden
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted" />
+    </span>
+  );
 }
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
@@ -109,7 +115,8 @@ export function Badge({ tone = 'neutral', children, className }: { tone?: keyof 
 /* ---------- Empty state ---------- */
 export function EmptyState({ title, hint }: { title: string; hint?: string }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-line px-4 py-8 text-center">
+    <div className="flex flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-line px-4 py-8 text-center">
+      <Inbox size={18} aria-hidden className="text-muted/70" />
       <p className="text-sm text-fg/90">{title}</p>
       {hint && <p className="text-xs text-muted">{hint}</p>}
     </div>
@@ -193,7 +200,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="pointer-events-none fixed bottom-5 right-5 z-[60] flex w-[min(380px,90vw)] flex-col gap-2">
+      <div role="status" aria-live="polite"
+        className="pointer-events-none fixed bottom-5 right-5 z-[60] flex w-[min(380px,90vw)] flex-col gap-2">
         <AnimatePresence>
           {items.map((item) => (
             <motion.div
@@ -212,6 +220,33 @@ export function ToastProvider({ children }: { children: ReactNode }) {
         </AnimatePresence>
       </div>
     </ToastContext.Provider>
+  );
+}
+
+/* ---------- Stagger ---------- */
+const staggerParent = { hidden: {}, show: { transition: { staggerChildren: 0.055, delayChildren: 0.02 } } };
+const staggerChild = {
+  hidden: { opacity: 0, y: 14 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.45, ease: [0.22, 1, 0.36, 1] as const } },
+};
+
+export function Stagger({ children, className }: { children: ReactNode; className?: string }) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.div className={className} variants={reduce ? undefined : staggerParent}
+      initial={reduce ? undefined : 'hidden'} whileInView={reduce ? undefined : 'show'}
+      viewport={{ once: true, margin: '-60px' }}>
+      {children}
+    </motion.div>
+  );
+}
+
+export function StaggerItem({ children, className }: { children: ReactNode; className?: string }) {
+  const reduce = useReducedMotion();
+  return (
+    <motion.div className={className} variants={reduce ? undefined : staggerChild}>
+      {children}
+    </motion.div>
   );
 }
 
