@@ -11,6 +11,18 @@
 | Bento Grid / Dashboard | 4/8、7/5、12 列错落卡片，非等宽平铺 | `Stagger className="grid grid-cols-12"` |
 | 信息层级清晰 | 标题 14px / 正文 12–13px / 辅助 11px，三级字号 | `CardHeader`、`.label` |
 | 留白充足 | 卡片内边距 20px，卡片间距 16px，页面最大宽 1440px | `Card`、`main` |
+| 证据脊柱（签名元素） | 漂移/规则条目左侧常驻行号槽，悬停联动、点击打开原文 | `LineSpine` |
+
+### 签名元素：证据脊柱
+
+普通后台把行号藏在弹窗里；这里把行号放在每条证据的左侧，成为版式的一部分。
+
+- 常驻：不用打开弹窗就能看到这条 Finding 对应哪几行
+- 联动：悬停行号，另一张卡里同一接口或同一行的条目同时高亮
+- 可追溯：点击行号，直接打开该版本的原文并定位
+- 无障碍：行号是按钮，可 Tab 聚焦，`aria-label` 为「第 N 行」
+
+这不是装饰，是把「结论必须能指回某一行」变成可操作的界面。
 
 ## 2. 视觉与质感
 
@@ -73,4 +85,4 @@ cd frontend && npm run build      # 产物必须与 web/ 一致
 make e2e                          # 15 项真实浏览器测试
 ```
 
-截图：`docs/ui-dashboard.png`（深色）、`docs/ui-dashboard-light.png`（浅色）、`docs/ui-topology.png`。
+截图：`docs/ui-dashboard.png`（深色）、`docs/ui-dashboard-light.png`（浅色）、`docs/ui-topology.png`、`docs/ui-evidence-spine.png`（行号联动）。

@@ -12,3 +12,12 @@ export const when = (iso?: string | null) =>
 
 export const cash = (value?: number | string | null) =>
   value === null || value === undefined ? '—' : String(value);
+
+/** Two evidence paths describe the same scope when they touch the same interface. */
+export function sameScope(a?: string | null, b?: string | null): boolean {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const left = a.split('.');
+  const right = b.split('.');
+  return left[0] === 'interface' && right[0] === 'interface' && left[1] === right[1];
+}

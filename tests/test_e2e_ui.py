@@ -403,3 +403,42 @@ def test_switch_device_while_collecting_discards_old_response(page, server, fake
     page.wait_for_function("() => document.querySelector('[data-testid=target-host]').value === 'localhost'")
     page.wait_for_timeout(2000)
     assert page.input_value("[data-testid=target-host]") == "localhost"
+
+
+def test_evidence_spine_links_drift_and_rule_evidence(page, server):
+    first = api_post(server, "/api/devices", {"name": "spine-a"})["id"]
+    second = api_post(server, "/api/devices", {"name": "spine-b"})["id"]
+    baseline = api_post(server, f"/api/devices/{first}/configs", {"text": BASELINE, "source_name": "baseline"})["id"]
+    api_post(server, f"/api/devices/{first}/baseline", {"version_id": baseline})
+    api_post(server, f"/api/devices/{first}/configs", {"text": CHANGED, "source_name": "changed"})
+    wrong_area = SECOND.replace("network 10.12.0.0/30 area 0.0.0.0", "network 10.12.0.0/30 area 0.0.0.1")
+    api_post(server, f"/api/devices/{second}/configs", {"text": wrong_area, "source_name": "peer"})
+    api_post(server, "/api/links", {"device_a_id": first, "iface_a": "eth2", "device_b_id": second, "iface_b": "eth1"})
+
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", first)
+    page.wait_for_selector("[data-testid=version-list] :text('changed')")
+    page.click("[data-testid=compute-drift]")
+    page.wait_for_selector("[data-testid=drift-item] [data-testid=spine-line]")
+    page.click("[data-testid=run-rules]")
+    page.wait_for_selector("[data-testid=finding][data-rule='R005']")
+    page.wait_for_timeout(600)  # let the stagger animation settle before hovering
+    check = api_post(server, f"/api/devices/{first}/rules/check", {"include_cross": True})
+    r005 = next(item for item in check["findings"] if item["rule_id"] == "R005")
+    eth2_line = next(item["line"] for item in r005["evidence"]
+                     if (item.get("path") or "").startswith("interface.eth2"))
+
+    # Hovering a rule evidence line highlights the drift item for the same interface.
+    page.locator(f"[data-testid=finding][data-rule='R005'] [data-testid=spine-line][data-line='{eth2_line}']").hover()
+    page.wait_for_timeout(200)
+    assert page.locator("[data-testid=drift-item][class*='accent']").count() >= 1
+
+    # Hovering the drift line highlights the R005 finding.
+    page.locator("[data-testid=drift-item] [data-testid=spine-line]").first.hover()
+    page.wait_for_timeout(200)
+    assert page.locator("[data-testid=finding][data-rule='R005'][class*='accent']").count() == 1
+
+    # Clicking the line opens the evidence dialog at that line.
+    page.locator("[data-testid=drift-item] [data-testid=spine-line]").first.click()
+    page.wait_for_selector("[data-testid=evidence-body]")
+    assert "ip ospf cost 30" in page.inner_text("[data-testid=evidence-body]")

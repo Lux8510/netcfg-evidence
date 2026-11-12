@@ -223,6 +223,56 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   );
 }
 
+/* ---------- Line spine ---------- */
+export type SpinePoint = { line: number; versionId?: string; tone?: 'old' | 'new' };
+export type HoverPoint = { line: number; versionId: string; path?: string | null } | null;
+
+export function LineSpine({ lines, active, onHover, onSelect, label }: {
+  lines: SpinePoint[];
+  active?: HoverPoint;
+  onHover?: (point: SpinePoint | null) => void;
+  onSelect?: (point: SpinePoint) => void;
+  label?: string;
+}) {
+  const unique = useMemo(() => {
+    const seen = new Set<string>();
+    return lines.filter((point) => {
+      const key = `${point.versionId ?? ''}:${point.line}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [lines]);
+  if (unique.length === 0) return null;
+  const shown = unique.slice(0, 3);
+  const rest = unique.length - shown.length;
+  return (
+    <div className="flex w-11 shrink-0 flex-col items-end gap-1 border-r border-line pr-2"
+         data-testid="line-spine" aria-label={label ?? '行号'}>
+      {shown.map((point) => {
+        const isActive = !!active && active.line === point.line && active.versionId === (point.versionId ?? '');
+        return (
+          <button key={`${point.versionId ?? ''}-${point.line}`} type="button"
+                  data-testid="spine-line" data-line={point.line} data-active={isActive || undefined}
+                  aria-label={`第 ${point.line} 行`} title={`第 ${point.line} 行`}
+                  onMouseEnter={() => onHover?.(point)}
+                  onFocus={() => onHover?.(point)}
+                  onClick={() => onSelect?.(point)}
+                  className={cn('mono relative w-full rounded px-1 py-0.5 text-right text-[10px] tabular-nums transition-colors',
+                    'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent/60',
+                    isActive ? 'bg-accent/20 text-accent ring-1 ring-accent/30'
+                      : point.tone === 'old' ? 'text-muted/80 hover:text-fg' : 'text-muted hover:text-fg')}>
+            {point.line}
+            <span aria-hidden
+                  className={cn('absolute -right-2 top-1/2 h-px w-2 -translate-y-1/2', isActive ? 'bg-accent' : 'bg-line')} />
+          </button>
+        );
+      })}
+      {rest > 0 && <span className="mono text-[10px] text-muted/70">+{rest}</span>}
+    </div>
+  );
+}
+
 /* ---------- Stagger ---------- */
 const staggerParent = { hidden: {}, show: { transition: { staggerChildren: 0.055, delayChildren: 0.02 } } };
 const staggerChild = {

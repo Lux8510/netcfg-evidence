@@ -9,9 +9,9 @@ import {
   type Exemption, type Explanation, type Finding, type Link, type RuleCheck, type User, type Version,
 } from '../lib/api';
 import { diffRows } from '../lib/diff';
-import { cn, shortId, when } from '../lib/utils';
+import { cn, sameScope, shortId, when } from '../lib/utils';
 import {
-  Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, Select, Stagger, StaggerItem, Textarea, ThemeToggle, useToast,
+  Badge, Button, Card, CardHeader, Dialog, EmptyState, Field, Input, LineSpine, Select, Stagger, StaggerItem, Textarea, ThemeToggle, useToast, type HoverPoint,
 } from '../components/ui';
 
 const statusTone: Record<string, 'ok' | 'warn' | 'danger' | 'neutral'> = {
@@ -28,6 +28,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
   const [versions, setVersions] = useState<Version[]>([]);
   const [baseline, setBaseline] = useState<{ config_version_id: string } | null>(null);
   const [drift, setDrift] = useState<DriftReport | null>(null);
+  const [hoverPoint, setHoverPoint] = useState<HoverPoint>(null);
   const [ruleCheck, setRuleCheck] = useState<RuleCheck | null>(null);
   const [changes, setChanges] = useState<ChangeRequest[]>([]);
   const [links, setLinks] = useState<Link[]>([]);
@@ -107,7 +108,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
   useEffect(() => {
     // Any dialog belongs to the device that opened it.
     setDiffTarget(null); setEvidence(null); setChangeFor(null); setNoteFor(null); setExemptFor(null);
-    setChangeDialog(null);
+    setChangeDialog(null); setHoverPoint(null);
   }, [deviceId]);
 
   const currentDevice = devices.find((device) => device.id === deviceId) ?? null;
@@ -266,7 +267,8 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
         <StaggerItem className="col-span-12 xl:col-span-8">
           <DriftCard report={drift} busy={busy} onCompute={computeDrift}
                      onDiff={(base, current) => setDiffTarget({ base, current })}
-                     onExempt={setExemptFor} onRevoke={revokeExemption} onShow={setEvidence} />
+                     onExempt={setExemptFor} onRevoke={revokeExemption} onShow={setEvidence}
+                     hover={hoverPoint} onHover={setHoverPoint} />
         </StaggerItem>
 
         <StaggerItem className="col-span-12 lg:col-span-7">
@@ -276,7 +278,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
                        versionId: item.version_id ?? finding.config_version_id,
                        line: item.line as number,
                        title: `${finding.rule_id} 证据` })}
-                     onGenerate={setChangeFor} />
+                     onGenerate={setChangeFor} hover={hoverPoint} onHover={setHoverPoint} />
         </StaggerItem>
 
         <StaggerItem className="col-span-12 lg:col-span-5">
@@ -426,17 +428,18 @@ function VersionsCard({ versions, baseline, busy, onImport, onBaseline, onShow }
 }
 
 /* ---------------- drift ---------------- */
-function DriftCard({ report, busy, onCompute, onDiff, onExempt, onRevoke, onShow }: {
+function DriftCard({ report, busy, onCompute, onDiff, onExempt, onRevoke, onShow, hover, onHover }: {
   report: DriftReport | null; busy: string;
   onCompute: () => void;
   onDiff: (base: string, current: string) => void;
   onExempt: (item: DriftItem) => void;
   onRevoke: (exemption: Exemption, note: string) => void;
   onShow: (target: { versionId: string; line: number; title: string }) => void;
+  hover: HoverPoint; onHover: (point: HoverPoint) => void;
 }) {
   return (
     <Card className="h-full">
-      <CardHeader title="漂移" hint="与基线逐项比对；豁免是限时的，不是修复"
+      <CardHeader title="漂移" hint="逐项比对；悬停行号会联动右侧规则证据"
                   action={<Button size="sm" variant="primary" disabled={!!busy} onClick={onCompute} data-testid="compute-drift">
                     <RefreshCw size={13} className={busy ? 'animate-spin' : ''} /> 与基线比对
                   </Button>} />
@@ -455,9 +458,28 @@ function DriftCard({ report, busy, onCompute, onDiff, onExempt, onRevoke, onShow
           </div>
           <div className="mt-3 max-h-[340px] space-y-2 overflow-auto pr-1">
             {report.items.length === 0 && <EmptyState title="两份配置语义一致" />}
-            {report.items.map((item) => (
+            {report.items.map((item) => {
+              const lineMap = new Map<number, { line: number; versionId: string; tone: 'old' | 'new' }>();
+              for (const line of item.old_lines) lineMap.set(line, { line, versionId: report.baseline_version_id, tone: 'old' });
+              for (const line of item.new_lines) lineMap.set(line, { line, versionId: report.current_version_id, tone: 'new' });
+              const lines = [...lineMap.values()].sort((left, right) => left.line - right.line);
+              const active = !!hover && (sameScope(hover.path, item.path)
+                || lines.some((point) => point.line === hover.line && point.versionId === hover.versionId));
+              return (
               <article key={item.path} data-testid="drift-item" data-path={item.path}
-                       className="rounded-xl border border-line bg-panel-2 p-3">
+                       onMouseEnter={() => lines[0] && onHover({ line: lines[0].line, versionId: lines[0].versionId!, path: item.path })}
+                       onMouseLeave={() => onHover(null)}
+                       className={cn('rounded-xl border bg-panel-2 p-3 transition-colors',
+                         active ? 'border-accent/45 bg-accent/[0.035]' : 'border-line')}>
+                <div className="flex gap-3">
+                  <LineSpine lines={lines} active={hover} label={`${item.path} 行号`}
+                             onHover={(point) => onHover(point ? { line: point.line, versionId: point.versionId!, path: item.path } : null)}
+                             onSelect={(point) => onShow({
+                               versionId: point.versionId!,
+                               line: point.line,
+                               title: point.versionId === report.baseline_version_id ? '基线证据' : '当前证据',
+                             })} />
+                  <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <code className="mono text-[11px] text-fg">{item.path}</code>
                   <Badge tone={item.kind === 'added' ? 'ok' : item.kind === 'removed' ? 'danger' : 'warn'}>{item.kind}</Badge>
@@ -492,8 +514,11 @@ function DriftCard({ report, busy, onCompute, onDiff, onExempt, onRevoke, onShow
                     </Button>
                   )}
                 </div>
+                  </div>
+                </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
@@ -522,15 +547,16 @@ function RevokeButton({ exemption, onRevoke }: { exemption: Exemption; onRevoke:
 }
 
 /* ---------------- rules ---------------- */
-function RulesCard({ check, busy, includeCross, onToggleCross, onRun, onEvidence, onGenerate }: {
+function RulesCard({ check, busy, includeCross, onToggleCross, onRun, onEvidence, onGenerate, hover, onHover }: {
   check: RuleCheck | null; busy: string; includeCross: boolean;
   onToggleCross: (value: boolean) => void; onRun: () => void;
   onEvidence: (finding: Finding, item: { line: number | null; version_id?: string | null }) => void;
   onGenerate: (finding: Finding) => void;
+  hover: HoverPoint; onHover: (point: HoverPoint) => void;
 }) {
   return (
     <Card className="h-full">
-      <CardHeader title="规则与证据" hint="无法判定不会被当成通过"
+      <CardHeader title="规则与证据" hint="无法判定不算通过；悬停行号联动漂移"
                   action={<div className="flex items-center gap-2">
                     <label className="flex items-center gap-1.5 text-[11px] text-muted">
                       <input type="checkbox" checked={includeCross} data-testid="include-cross"
@@ -554,9 +580,37 @@ function RulesCard({ check, busy, includeCross, onToggleCross, onRun, onEvidence
           </div>
           <div className="mt-3 max-h-[300px] space-y-2 overflow-auto pr-1" data-testid="rules-result">
             {check.findings.length === 0 && <EmptyState title="没有需要处理的 Finding" />}
-            {check.findings.map((finding) => (
+            {check.findings.map((finding) => {
+              const lines = finding.evidence
+                .filter((item) => item.line !== null)
+                .map((item) => ({ line: item.line as number, versionId: item.version_id ?? check.config_version_id }));
+              const active = !!hover && (finding.evidence.some((item) => sameScope(hover.path, item.path))
+                || lines.some((point) => point.line === hover.line && point.versionId === hover.versionId));
+              return (
               <article key={finding.id} data-testid="finding" data-rule={finding.rule_id}
-                       className="rounded-xl border border-line bg-panel-2 p-3">
+                       onMouseEnter={() => {
+                         const first = finding.evidence.find((item) => item.line !== null);
+                         if (first?.line != null) onHover({
+                           line: first.line,
+                           versionId: first.version_id ?? check.config_version_id,
+                           path: first.path ?? null,
+                         });
+                       }}
+                       onMouseLeave={() => onHover(null)}
+                       className={cn('rounded-xl border bg-panel-2 p-3 transition-colors',
+                         active ? 'border-accent/45 bg-accent/[0.035]' : 'border-line')}>
+                <div className="flex gap-3">
+                  <LineSpine lines={lines} active={hover} label={`${finding.rule_id} 证据行号`}
+                             onHover={(point) => {
+                               if (!point) { onHover(null); return; }
+                               const evidence = finding.evidence.find((item) => item.line === point.line);
+                               onHover({ line: point.line, versionId: point.versionId!, path: evidence?.path ?? null });
+                             }}
+                             onSelect={(point) => {
+                               const evidence = finding.evidence.find((item) => item.line === point.line);
+                               if (evidence) onEvidence(finding, evidence);
+                             }} />
+                  <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <code className="mono text-[11px] text-fg">{finding.rule_id}</code>
                   <Badge tone={finding.status === 'violated' ? 'danger' : 'warn'}>{finding.status}</Badge>
@@ -580,8 +634,11 @@ function RulesCard({ check, busy, includeCross, onToggleCross, onRun, onEvidence
                     <GitBranch size={13} /> 生成变更单
                   </Button>
                 )}
+                  </div>
+                </div>
               </article>
-            ))}
+              );
+            })}
           </div>
         </>
       )}
@@ -771,6 +828,7 @@ function DiffDialog({ target, onClose }: { target: { base: string; current: stri
   const leftText = state?.left.text ?? '';
   const rightText = state?.right.text ?? '';
   const rows = useMemo(() => state ? diffRows(leftText.split('\n'), rightText.split('\n')) : [], [state, leftText, rightText]);
+  const [hoverLine, setHoverLine] = useState<number | null>(null);
   return (
     <Dialog open={!!target} onClose={onClose} title="并排对比" wide>
       {!state ? <p className="text-xs text-muted">正在读取两个版本…</p> : (
@@ -779,17 +837,25 @@ function DiffDialog({ target, onClose }: { target: { base: string; current: stri
             <span>基线：{state.left.source_name}</span>
             <span>当前：{state.right.source_name}</span>
           </div>
-          <div className="max-h-[62vh] overflow-auto rounded-lg border border-line" data-testid="diff-body">
+          <div className="max-h-[62vh] overflow-auto rounded-lg border border-line" data-testid="diff-body"
+               onMouseLeave={() => setHoverLine(null)}>
             {rows.map((row, index) => {
               const leftLine = row.left === null ? '' : leftText.split('\n')[row.left];
               const rightLine = row.right === null ? '' : rightText.split('\n')[row.right];
+              const leftActive = row.left !== null && row.left + 1 === hoverLine;
+              const rightActive = row.right !== null && row.right + 1 === hoverLine;
               return (
-                <div key={index} className="mono grid grid-cols-2 text-[11px]">
-                  <div className={cn('px-2 py-0.5', row.left === null ? 'bg-panel' : row.right === null ? 'bg-danger/15' : '')}>
-                    <span className="mr-2 inline-block w-8 select-none text-muted">{row.left === null ? '' : row.left + 1}</span>{leftLine}
+                <div key={index} className="mono grid grid-cols-2 text-[11px]"
+                     onMouseEnter={() => setHoverLine(row.left !== null ? row.left + 1 : row.right !== null ? row.right + 1 : null)}>
+                  <div className={cn('border-r border-line px-2 py-0.5 transition-colors',
+                    row.left === null ? 'bg-panel' : row.right === null ? 'bg-danger/15' : '',
+                    leftActive && 'bg-accent/10')}>
+                    <span className={cn('mr-2 inline-block w-8 select-none tabular-nums', leftActive ? 'text-accent' : 'text-muted')}>{row.left === null ? '' : row.left + 1}</span>{leftLine}
                   </div>
-                  <div className={cn('px-2 py-0.5', row.right === null ? 'bg-panel' : row.left === null ? 'bg-ok/15' : '')}>
-                    <span className="mr-2 inline-block w-8 select-none text-muted">{row.right === null ? '' : row.right + 1}</span>{rightLine}
+                  <div className={cn('px-2 py-0.5 transition-colors',
+                    row.right === null ? 'bg-panel' : row.left === null ? 'bg-ok/15' : '',
+                    rightActive && 'bg-accent/10')}>
+                    <span className={cn('mr-2 inline-block w-8 select-none tabular-nums', rightActive ? 'text-accent' : 'text-muted')}>{row.right === null ? '' : row.right + 1}</span>{rightLine}
                   </div>
                 </div>
               );
@@ -813,9 +879,18 @@ function EvidenceDialog({ target, onClose }: {
   }, [target]);
   return (
     <Dialog open={!!target} onClose={onClose} title={target?.title ?? '原文'}>
-      <pre className="mono max-h-[60vh] overflow-auto rounded-lg bg-panel-2 p-3 text-[11px] leading-relaxed" data-testid="evidence-body">
-        {lines.map((row) => `${String(row.line).padStart(4, ' ')} | ${row.text}`).join('\n')}
-      </pre>
+      <div className="max-h-[60vh] overflow-auto rounded-lg border border-line bg-panel-2" data-testid="evidence-body">
+        {lines.map((row) => {
+          const isTarget = row.line === target?.line;
+          return (
+            <div key={row.line} className={cn('mono flex text-[11px] leading-relaxed', isTarget && 'bg-accent/10')}>
+              <span className={cn('w-11 shrink-0 select-none border-r border-line px-2 py-0.5 text-right tabular-nums',
+                isTarget ? 'text-accent' : 'text-muted')}>{row.line}</span>
+              <span className="whitespace-pre px-3 py-0.5 text-fg">{row.text || ' '}</span>
+            </div>
+          );
+        })}
+      </div>
     </Dialog>
   );
 }

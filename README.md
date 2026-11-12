@@ -158,9 +158,13 @@ make user USER=老李 ROLE=approver
 
 ![拓扑](docs/ui-topology.png)
 
+![证据脊柱](docs/ui-evidence-spine.png)
+
 ![登录](docs/ui-login.png)
 
 支持深色 / 浅色主题切换，偏好存在 localStorage，首屏由内联脚本设置避免闪烁（浅色版见 [docs/ui-dashboard-light.png](docs/ui-dashboard-light.png)）。
+
+**证据脊柱**：漂移项和规则证据左侧有常驻行号槽；悬停某一行，另一张卡里引用同一接口/同一行的条目会同时亮起，点击行号直接打开原文。设计说明见 [docs/UI_SPEC.md](docs/UI_SPEC.md)。
 
 也可以直接调用模块：
 
@@ -421,7 +425,7 @@ make concurrency
 make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动跳过
 ```
 
-12 条真实浏览器用例（Bento 工作台）：
+16 条真实浏览器用例（Bento 工作台）：
 
 1. 导入 → 设基线 → 比对 → 并排 diff 标出 cost 10 与 cost 30
 2. 规则违规 → 生成变更单 → 提交 → 批准 → 审计事件
@@ -435,6 +439,10 @@ make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动�
 10. 延迟返回的旧设备响应不会覆盖新设备
 11. 跨设备 Finding 的「对端证据」打开对端版本原文
 12. 窄窗口下 3D 背景自动卸载；弹窗焦点圈定、拓扑节点可键盘操作
+13. 主题切换写入 localStorage，刷新后保持
+14. SSH 变更核对：保存目标 → 采集前快照 → 完成核对 → 展示差异
+15. 采集中切换设备，旧响应不会写回新设备
+16. 悬停证据行号，另一张卡的关联条目同步高亮；点击行号打开原文
 
 单元测试默认排除 `e2e`（`pyproject.toml` 的 `addopts`），所以 `pytest` 仍然是秒级；`make e2e` 单独跑浏览器用例。
 
