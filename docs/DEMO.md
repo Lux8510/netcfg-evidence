@@ -40,7 +40,7 @@ make ui                                   # 仅在改过前端时需要
 | --- | --- |
 | 没有真实模型 key | 解释卡片用 Mock，说明"结构校验相同，模型可替换" |
 | 网络不可用 | 全程不依赖外网；只有真实模型解释需要网络 |
-| 浏览器不可用 | 用 `docs/ui-dashboard.png`、`ui-topology.png`、`ui-login.png` 三张截图讲 |
+| 浏览器不可用 | 用 `docs/ui-dashboard.png`、`ui-topology.png`、`ui-evidence-spine.png`、`ui-custody-chain.png`、`ui-login.png` 截图讲 |
 
 ## 三个必须说出口的边界
 

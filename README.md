@@ -160,9 +160,13 @@ make user USER=老李 ROLE=approver
 
 ![证据脊柱](docs/ui-evidence-spine.png)
 
+![审批链](docs/ui-custody-chain.png)
+
 ![登录](docs/ui-login.png)
 
 支持深色 / 浅色主题切换，偏好存在 localStorage，首屏由内联脚本设置避免闪烁（浅色版见 [docs/ui-dashboard-light.png](docs/ui-dashboard-light.png)）。
+
+**三栏工作台**：左栏版本与 SSH 采集，中栏漂移与规则证据，右栏拓扑与审计；变更单与审批链在底部横跨全宽。
 
 **证据脊柱**：漂移项和规则证据左侧有常驻行号槽；悬停某一行，另一张卡里引用同一接口/同一行的条目会同时亮起，点击行号直接打开原文。设计说明见 [docs/UI_SPEC.md](docs/UI_SPEC.md)。
 
@@ -425,7 +429,7 @@ make concurrency
 make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动跳过
 ```
 
-16 条真实浏览器用例（Bento 工作台）：
+16 条真实浏览器用例（三栏工作台）：
 
 1. 导入 → 设基线 → 比对 → 并排 diff 标出 cost 10 与 cost 30
 2. 规则违规 → 生成变更单 → 提交 → 批准 → 审计事件

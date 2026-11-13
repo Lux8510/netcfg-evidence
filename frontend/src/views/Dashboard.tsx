@@ -259,50 +259,51 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
 
       <main>
         <Stagger className="mt-5 grid grid-cols-12 gap-4">
-        <StaggerItem className="col-span-12 xl:col-span-4">
-          <VersionsCard versions={versions} baseline={baseline} busy={busy}
-                        onImport={importConfig} onBaseline={setAsBaseline} onShow={setEvidence} />
-        </StaggerItem>
+          {/* left rail: versions + ssh collection */}
+          <StaggerItem className="order-2 col-span-12 lg:order-1 lg:col-span-3">
+            <div className="space-y-4">
+              <VersionsCard versions={versions} baseline={baseline} busy={busy}
+                            onImport={importConfig} onBaseline={setAsBaseline} onShow={setEvidence} />
+              <ChangeVerifyCard key={deviceId} target={target} runs={changeRuns} busy={busy}
+                                onSaveTarget={saveTarget} onCollect={collectNow}
+                                onStart={() => setChangeDialog({ mode: 'start' })}
+                                onComplete={(runId) => setChangeDialog({ mode: 'complete', runId })} />
+            </div>
+          </StaggerItem>
 
-        <StaggerItem className="col-span-12 xl:col-span-8">
-          <DriftCard report={drift} busy={busy} onCompute={computeDrift}
-                     onDiff={(base, current) => setDiffTarget({ base, current })}
-                     onExempt={setExemptFor} onRevoke={revokeExemption} onShow={setEvidence}
-                     hover={hoverPoint} onHover={setHoverPoint} />
-        </StaggerItem>
+          {/* center: the evidence canvas */}
+          <StaggerItem className="order-1 col-span-12 lg:order-2 lg:col-span-6">
+            <div className="space-y-4">
+              <DriftCard report={drift} busy={busy} onCompute={computeDrift}
+                         onDiff={(base, current) => setDiffTarget({ base, current })}
+                         onExempt={setExemptFor} onRevoke={revokeExemption} onShow={setEvidence}
+                         hover={hoverPoint} onHover={setHoverPoint} />
+              <RulesCard check={ruleCheck} busy={busy} includeCross={includeCross}
+                         onToggleCross={setIncludeCross} onRun={checkRules}
+                         onEvidence={(finding, item) => setEvidence({
+                           versionId: item.version_id ?? finding.config_version_id,
+                           line: item.line as number,
+                           title: `${finding.rule_id} 证据` })}
+                         onGenerate={setChangeFor} hover={hoverPoint} onHover={setHoverPoint} />
+            </div>
+          </StaggerItem>
 
-        <StaggerItem className="col-span-12 lg:col-span-7">
-          <RulesCard check={ruleCheck} busy={busy} includeCross={includeCross}
-                     onToggleCross={setIncludeCross} onRun={checkRules}
-                     onEvidence={(finding, item) => setEvidence({
-                       versionId: item.version_id ?? finding.config_version_id,
-                       line: item.line as number,
-                       title: `${finding.rule_id} 证据` })}
-                     onGenerate={setChangeFor} hover={hoverPoint} onHover={setHoverPoint} />
-        </StaggerItem>
+          {/* right inspector: topology + audit */}
+          <StaggerItem className="order-3 col-span-12 lg:order-3 lg:col-span-3">
+            <div className="space-y-4">
+              <TopologyCard links={deviceLinks} currentId={deviceId} onSelect={setDeviceId} />
+              <AuditCard rows={audit} />
+            </div>
+          </StaggerItem>
 
-        <StaggerItem className="col-span-12 lg:col-span-5">
-          <TopologyCard links={deviceLinks} currentId={deviceId} onSelect={setDeviceId} />
-        </StaggerItem>
+          {/* bottom: custody chain + explanations */}
+          <StaggerItem className="order-4 col-span-12">
+            <ChangesCard changes={changes} busy={busy}
+                         onAction={(requestId, action) => setNoteFor({ requestId, action })} />
+          </StaggerItem>
 
-        <StaggerItem className="col-span-12 lg:col-span-7">
-          <ChangesCard changes={changes} busy={busy}
-                       onAction={(requestId, action) => setNoteFor({ requestId, action })} />
-        </StaggerItem>
-
-        <StaggerItem className="col-span-12 lg:col-span-5">
-          <AuditCard rows={audit} />
-        </StaggerItem>
-
-        <StaggerItem className="col-span-12">
-          <ChangeVerifyCard key={deviceId} target={target} runs={changeRuns} busy={busy}
-                            onSaveTarget={saveTarget} onCollect={collectNow}
-                            onStart={() => setChangeDialog({ mode: 'start' })}
-                            onComplete={(runId) => setChangeDialog({ mode: 'complete', runId })} />
-        </StaggerItem>
-
-        <StaggerItem className="col-span-12">
-          <ExplainCard rows={explanations} busy={busy} onGenerate={generateExplanation} />
+          <StaggerItem className="order-5 col-span-12">
+            <ExplainCard rows={explanations} busy={busy} onGenerate={generateExplanation} />
           </StaggerItem>
         </Stagger>
       </main>
@@ -710,6 +711,57 @@ function TopologyCard({ links, currentId, onSelect }: { links: Link[]; currentId
 }
 
 /* ---------------- changes ---------------- */
+function CustodyChain({ request }: { request: ChangeRequest }) {
+  const stages = [
+    { key: 'draft', label: '创建', actor: request.created_by },
+    { key: 'pending_approval', label: '提交', actor: request.created_by },
+    { key: 'approved', label: '批准', actor: request.approved_by },
+    { key: 'applied', label: '执行', actor: null },
+  ];
+  const order = stages.map((stage) => stage.key);
+  const rejected = request.status === 'rejected' || request.status === 'cancelled';
+  const current = rejected ? 1 : order.indexOf(request.status);
+  return (
+    <div className="mb-3 rounded-xl border border-line bg-panel-2 px-3 py-3" data-testid="custody-chain">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="label">审批链</span>
+        <span className="mono text-[10px] text-muted">{shortId(request.id)}</span>
+      </div>
+      <ol className="flex items-start overflow-x-auto">
+        {stages.map((stage, index) => {
+          const done = !rejected && index <= current;
+          const failed = rejected && index === 2;
+          return (
+            <li key={stage.key} className="flex min-w-0 flex-1 items-start">
+              <div className="flex min-w-[64px] flex-col items-center gap-1 text-center">
+                <span aria-hidden
+                      className={cn('h-2 w-2 rounded-full border',
+                        failed ? 'border-danger bg-danger'
+                          : done ? 'border-accent bg-accent'
+                            : 'border-line bg-transparent')} />
+                <span className={cn('text-[10px]', done ? 'text-fg' : 'text-muted')}>
+                  {failed ? '拒绝' : stage.label}
+                </span>
+                <span className="mono max-w-[80px] truncate text-[9px] text-muted">
+                  {failed ? request.rejection_reason ?? '—'
+                    : done ? (stage.actor ?? when(request.created_at)) : '待处理'}
+                </span>
+              </div>
+              {index < stages.length - 1 && (
+                <span aria-hidden className={cn('mt-1 h-px flex-1',
+                  !rejected && index < current ? 'bg-accent/50' : 'bg-line')} />
+              )}
+            </li>
+          );
+        })}
+      </ol>
+      {rejected && request.rejection_reason && (
+        <p className="mt-2 text-[10px] text-danger/90">驳回原因：{request.rejection_reason}</p>
+      )}
+    </div>
+  );
+}
+
 function ChangesCard({ changes, busy, onAction }: {
   changes: ChangeRequest[]; busy: string; onAction: (id: string, action: string) => void;
 }) {
@@ -717,6 +769,7 @@ function ChangesCard({ changes, busy, onAction }: {
     <Card className="h-full">
       <CardHeader title="变更单与审批" hint="审批人来自登录会话；系统从不下发配置"
                   action={<Wallet size={16} className="text-muted" />} />
+      {changes.length > 0 && <CustodyChain request={changes[0]} />}
       <div className="space-y-2" data-testid="changes-list">
         {changes.length === 0 && <EmptyState title="还没有变更单" hint="在规则里对一条违规生成变更单" />}
         {changes.slice(0, 6).map((request) => (
@@ -998,31 +1051,35 @@ function ChangeVerifyCard({ target, runs, busy, onSaveTarget, onCollect, onStart
   const valid = host.trim() && username.trim() && Number.isInteger(portNumber) && portNumber >= 1 && portNumber <= 65535;
   return (
     <Card>
-      <CardHeader title="SSH 采集与变更核对" hint="只读命令白名单；变更前/后各采一次快照，比较差异并重跑规则"
-                  action={<div className="flex gap-1.5">
-                    <Button size="sm" variant="ghost" disabled={!!busy || !target} onClick={onCollect} data-testid="collect-now">
-                      <RefreshCw size={13} /> 采集当前配置
-                    </Button>
-                    <Button size="sm" variant="primary" disabled={!!busy || !target} onClick={onStart} data-testid="start-change">
-                      <GitBranch size={13} /> 开始变更窗口
-                    </Button>
-                  </div>} />
-      <div className="grid gap-2 sm:grid-cols-5">
-        <Field label="主机"><Input value={host} onChange={(event) => setHost(event.target.value)} data-testid="target-host" placeholder="10.0.0.1 或 127.0.0.1" /></Field>
+      <CardHeader title="SSH 采集与变更核对" hint="只读白名单；变更前后各采一次快照" />
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <Button size="sm" variant="ghost" disabled={!!busy || !target} onClick={onCollect} data-testid="collect-now">
+          <RefreshCw size={13} /> 采集当前配置
+        </Button>
+        <Button size="sm" variant="primary" disabled={!!busy || !target} onClick={onStart} data-testid="start-change">
+          <GitBranch size={13} /> 开始变更窗口
+        </Button>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div className="col-span-2">
+          <Field label="主机"><Input value={host} onChange={(event) => setHost(event.target.value)} data-testid="target-host" placeholder="10.0.0.1 或 127.0.0.1" /></Field>
+        </div>
         <Field label="端口"><Input value={port} onChange={(event) => setPort(event.target.value)} data-testid="target-port" /></Field>
         <Field label="用户名"><Input value={username} onChange={(event) => setUsername(event.target.value)} data-testid="target-username" /></Field>
-        <Field label="密码环境变量" hint="只存变量名，不存密码">
-          <Input value={credentialRef} onChange={(event) => setCredentialRef(event.target.value)} data-testid="target-credential" placeholder="NETCFG_SSH_PASSWORD" />
-        </Field>
-        <div className="flex items-end">
+        <div className="col-span-2">
+          <Field label="密码环境变量" hint="只存变量名，不存密码">
+            <Input value={credentialRef} onChange={(event) => setCredentialRef(event.target.value)} data-testid="target-credential" placeholder="NETCFG_SSH_PASSWORD" />
+          </Field>
+        </div>
+        <div className="col-span-2">
           <Button variant="outline" className="w-full" disabled={!!busy || !valid} data-testid="target-save"
                   onClick={() => onSaveTarget({ host: host.trim(), port: portNumber, username: username.trim(), credential_ref: credentialRef.trim() })}>
             保存目标
           </Button>
         </div>
       </div>
-      <p className="mt-2 text-[11px] text-muted">
-        服务器只执行 <code className="mono">show running-config</code> 等白名单命令；密码从后端环境变量读取，接口不回显。
+      <p className="mt-2 text-[11px] leading-relaxed text-muted">
+        只执行 <code className="mono">show running-config</code> 等白名单命令；密码从后端环境变量读取，接口不回显。
       </p>
       <div className="mt-3 space-y-2" data-testid="change-runs">
         {runs.length === 0 && <EmptyState title="还没有变更核对" hint="配置目标后点「开始变更窗口」" />}

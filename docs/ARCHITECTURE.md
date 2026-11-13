@@ -9,7 +9,7 @@
 ```mermaid
 flowchart LR
   subgraph Browser["浏览器（React + Tailwind）"]
-    UI[工作台 / Bento 卡片]
+    UI[三栏工作台 / 证据脊柱 / 审批链]
   end
 
   subgraph API["FastAPI 单进程"]

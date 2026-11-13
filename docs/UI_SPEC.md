@@ -8,10 +8,24 @@
 | 要求 | 实现 | 位置 |
 |---|---|---|
 | Tailwind CSS 响应式布局 | 12 列栅格 + `sm/md/lg/xl` 断点 | `views/Dashboard.tsx` |
-| Bento Grid / Dashboard | 4/8、7/5、12 列错落卡片，非等宽平铺 | `Stagger className="grid grid-cols-12"` |
+| 三栏工作台 | 3/6/3 栅格：左栏版本与采集，中栏证据画布，右栏拓扑与审计；底部通栏审批链 | `Dashboard` 主栅格 |
+| Bento 感 | 卡片尺寸按任务分级，不做等宽平铺；窄屏按 1 → 2 → 3 列堆叠 | `StaggerItem` 的 `col-span` / `order` |
 | 信息层级清晰 | 标题 14px / 正文 12–13px / 辅助 11px，三级字号 | `CardHeader`、`.label` |
 | 留白充足 | 卡片内边距 20px，卡片间距 16px，页面最大宽 1440px | `Card`、`main` |
 | 证据脊柱（签名元素） | 漂移/规则条目左侧常驻行号槽，悬停联动、点击打开原文 | `LineSpine` |
+
+### 版式：三栏工作台
+
+```
+┌──────────┬──────────────────────┬──────────────┐
+│ 版本      │ 漂移（主画布）         │ 拓扑          │
+│ SSH 采集  │ 规则与证据            │ 审计          │
+├──────────┴──────────────────────┴──────────────┤
+│ 变更单 + 审批链 + 解释（通栏）                    │
+└────────────────────────────────────────────────┘
+```
+
+窄屏顺序是「漂移/规则 → 版本/采集 → 拓扑/审计 → 审批链」，保证第一屏先看到证据。
 
 ### 签名元素：证据脊柱
 
@@ -63,6 +77,10 @@
 | Toast | 右下堆叠、4.2s 自动消失、`aria-live` | `ToastProvider` |
 | Empty State | 虚线边框 + 图标 + 说明 | `EmptyState` |
 
+### 审批链
+
+变更单卡片顶部有一条横向链：创建 → 提交 → 批准 → 执行，已完成实心、待处理空心、驳回断链并显示原因。链尾是变更单 ID 的短哈希，方便口头引用。
+
 ## 6. 整体风格
 
 - 定位：工具型产品，不是营销页；首屏就是可操作的工作台。
@@ -85,4 +103,4 @@ cd frontend && npm run build      # 产物必须与 web/ 一致
 make e2e                          # 15 项真实浏览器测试
 ```
 
-截图：`docs/ui-dashboard.png`（深色）、`docs/ui-dashboard-light.png`（浅色）、`docs/ui-topology.png`、`docs/ui-evidence-spine.png`（行号联动）。
+截图：`docs/ui-dashboard.png`（深色）、`docs/ui-dashboard-light.png`（浅色）、`docs/ui-topology.png`、`docs/ui-evidence-spine.png`（行号联动）、`docs/ui-custody-chain.png`（审批链）。
