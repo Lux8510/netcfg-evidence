@@ -98,12 +98,18 @@ def import_bundle(client: httpx.Client, bundle: dict[str, Any], *,
         "text": snapshot["text"],
         "source_name": f"netsecops-{bundle['bundle_sha256'][:8]}",
     }))
-    _data(client.post(f"/api/devices/{device_id}/baseline", json={"version_id": version["id"]}))
-    check = _data(client.post(f"/api/devices/{device_id}/rules/check", json={}))
+    # Never move the active baseline as a side effect of importing evidence.
+    check = _data(client.post(f"/api/devices/{device_id}/rules/check",
+                              json={"current_version_id": version["id"]}))
+    if check.get("config_version_id") != version["id"]:
+        raise ImportError_("Rule run is not bound to the imported version")
+    if any(item.get("config_version_id") != version["id"] for item in check.get("findings") or []):
+        raise ImportError_("A finding is not bound to the imported version")
     finding = pick_finding(check, preferred_rule)
     if finding is None:
         return {"status": "imported_without_finding", "device_id": device_id,
-                "version_id": version["id"], "bundle_sha256": bundle["bundle_sha256"]}
+                "version_id": version["id"], "rule_run_id": check.get("run_id"),
+                "bundle_sha256": bundle["bundle_sha256"]}
     commands = [item for item in bundle["proposed_commands"] if isinstance(item, str) and item.strip()]
     change = _data(client.post(f"/api/devices/{device_id}/change-requests", json={
         "title": f"外部诊断：{(bundle.get('diagnosis') or {}).get('status')} / {finding['rule_id']}",
@@ -112,6 +118,7 @@ def import_bundle(client: httpx.Client, bundle: dict[str, Any], *,
         "proposed_commands": commands,
     }))
     return {"status": "imported", "device_id": device_id, "version_id": version["id"],
+            "rule_run_id": check.get("run_id"), "rule_config_version_id": check.get("config_version_id"),
             "finding_id": finding["id"], "change_request_id": change["id"],
             "bundle_sha256": bundle["bundle_sha256"]}
 

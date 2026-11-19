@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 
+import httpx
 import pytest
 
 from scripts.import_diagnosis import (ImportError_, canonical, compose_rationale,
@@ -44,12 +45,52 @@ def test_import_creates_change_request_linked_to_own_finding(app_client, r1_text
     assert change["finding_ids"] == [result["finding_id"]]
     assert result["bundle_sha256"][:8] in change["rationale"]
     assert change["proposed_commands"] == bundle["proposed_commands"]
+    assert result["rule_config_version_id"] == result["version_id"]
+    findings = app_client.get(f"/api/devices/{result['device_id']}/findings",
+                              params={"run_id": result["rule_run_id"]}).json()["data"]
+    assert findings and all(item["config_version_id"] == result["version_id"] for item in findings)
 
 
 def test_clean_config_imports_without_a_change_request(app_client, r1_text):
     result = import_bundle(app_client, make_bundle(r1_text, name="bridge-clean"))
     assert result["status"] == "imported_without_finding"
     assert "change_request_id" not in result
+
+
+def test_import_does_not_move_an_existing_baseline(app_client, r1_text):
+    bundle = make_bundle(r1_text, name="baseline-guard")
+    first = import_bundle(app_client, bundle)
+    baseline = app_client.get(f"/api/devices/{first['device_id']}/baseline").json()["data"]
+    assert baseline is None  # no implicit baseline on first import
+    app_client.post(f"/api/devices/{first['device_id']}/baseline", json={"version_id": first["version_id"]})
+    before = app_client.get(f"/api/devices/{first['device_id']}/baseline").json()["data"]
+
+    changed = r1_text.replace(" ip ospf cost 10", " ip ospf cost 30")
+    second = import_bundle(app_client, make_bundle(changed, name="baseline-guard"))
+    after = app_client.get(f"/api/devices/{first['device_id']}/baseline").json()["data"]
+    assert second["version_id"] != first["version_id"]
+    assert after["config_version_id"] == before["config_version_id"]
+
+
+def test_failed_change_request_does_not_move_baseline(app_client, r1_text):
+    broken = r1_text.replace(" ip ospf cost 10\n", "").replace(" passive-interface lo\n", "")
+    bundle = make_bundle(broken, name="reject-guard")
+    first = import_bundle(app_client, bundle)
+    app_client.post(f"/api/devices/{first['device_id']}/baseline", json={"version_id": first["version_id"]})
+    before = app_client.get(f"/api/devices/{first['device_id']}/baseline").json()["data"]
+
+    class RejectChange:
+        def __init__(self, client): self.client = client
+        def get(self, *args, **kwargs): return self.client.get(*args, **kwargs)
+        def post(self, path, **kwargs):
+            if path.endswith("/change-requests"):
+                return httpx.Response(422, json={"error": {"code": "REJECTED", "message": "no"}})
+            return self.client.post(path, **kwargs)
+
+    with pytest.raises(ImportError_):
+        import_bundle(RejectChange(app_client), make_bundle(broken, name="reject-guard"))
+    after = app_client.get(f"/api/devices/{first['device_id']}/baseline").json()["data"]
+    assert after["config_version_id"] == before["config_version_id"]
 
 
 def test_pick_finding_prefers_requested_rule():
