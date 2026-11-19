@@ -6,7 +6,7 @@
 
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
-| 单元/接口 | `pytest` | 201 passed |
+| 单元/接口 | `pytest` | 206 passed |
 | 浏览器 E2E | `pytest -m e2e tests/test_e2e_ui.py` | 15 passed |
 | 真实并发 | `pytest -m concurrency tests/test_concurrency.py` | 3 passed |
 | 短压测 | `pytest -m load tests/test_load.py` | 1 passed |
@@ -29,7 +29,7 @@
 | README 截图 | 拓扑图重复出现两次 | 去掉重复，补登录页 |
 | 审查指南 | 仍指向旧 `web/app.js` | 改为 `frontend/src/` |
 | 承诺表 | C22 证据路径过时 | 改为 `Dashboard.tsx:loadDeviceData` |
-| README 测试数 | 未包含 SSH/主题新增用例 | 更新为 201 / 15 |
+| README 测试数 | 未包含 SSH/主题新增用例 | 更新为 206 / 15 |
 | 环境变量示例 | 缺少 SSH 白名单与严格校验 | 补 `NETCFG_SSH_ALLOWED_*`、`STRICT_HOST_KEY` |
 
 ## 仓库卫生
