@@ -39,6 +39,8 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     if hashlib.sha256(canonical(body)).hexdigest() != bundle.get("bundle_sha256"):
         raise ImportError_("Bundle hash does not match its contents")
     snapshot = bundle.get("config_snapshot") or {}
+    if not isinstance(snapshot.get("node"), str) or not snapshot["node"].strip():
+        raise ImportError_("Bundle snapshot has no source node")
     text = snapshot.get("text")
     if not isinstance(text, str) or not text.strip():
         raise ImportError_("Bundle has no config snapshot")
@@ -93,6 +95,9 @@ def import_bundle(client: httpx.Client, bundle: dict[str, Any], *,
     device_name = (bundle.get("device") or {}).get("name")
     if not isinstance(device_name, str) or not device_name.strip():
         raise ImportError_("Bundle has no device name")
+    if bundle["config_snapshot"]["node"] != device_name:
+        raise ImportError_("Snapshot source node does not match the target device; "
+                           "peer evidence must not be imported as the target config")
     device_id = _find_or_create_device(client, device_name.strip())
     version = _data(client.post(f"/api/devices/{device_id}/configs", json={
         "text": snapshot["text"],

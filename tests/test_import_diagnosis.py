@@ -10,7 +10,7 @@ from scripts.import_diagnosis import (ImportError_, canonical, compose_rationale
                                       import_bundle, pick_finding, verify_bundle)
 
 
-def make_bundle(config: str, name: str = "import-demo") -> dict:
+def make_bundle(config: str, name: str = "import-demo", node: str | None = None) -> dict:
     bundle = {
         "schema_version": 1,
         "source": "netsecops-agent",
@@ -18,7 +18,7 @@ def make_bundle(config: str, name: str = "import-demo") -> dict:
         "device": {"name": name},
         "diagnosis": {"status": "ospf_area_mismatch", "conclusion": "两端 Area 不一致",
                        "repair_suggestion": "统一 Area", "evidence_ids": ["E1", "E2"]},
-        "config_snapshot": {"text": config,
+        "config_snapshot": {"node": node or name, "text": config,
                             "sha256": hashlib.sha256(config.encode("utf-8")).hexdigest()},
         "proposed_commands": ["no ip ospf area 0.0.0.1", "ip ospf area 0.0.0.0"],
         "citations": [{"evidence_id": "E1", "tool": "query_ospf_interface"}],
@@ -49,6 +49,12 @@ def test_import_creates_change_request_linked_to_own_finding(app_client, r1_text
     findings = app_client.get(f"/api/devices/{result['device_id']}/findings",
                               params={"run_id": result["rule_run_id"]}).json()["data"]
     assert findings and all(item["config_version_id"] == result["version_id"] for item in findings)
+
+
+def test_peer_snapshot_cannot_be_imported_as_target(app_client, r1_text):
+    bundle = make_bundle(r1_text, name="target-r2", node="r1")
+    with pytest.raises(ImportError_):
+        import_bundle(app_client, bundle)
 
 
 def test_clean_config_imports_without_a_change_request(app_client, r1_text):
