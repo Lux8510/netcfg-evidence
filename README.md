@@ -6,8 +6,9 @@
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB)
 ![React 19](https://img.shields.io/badge/react-19-61DAFB)
 ![tests 209](https://img.shields.io/badge/tests-209-3ECF8E)
+![license MIT](https://img.shields.io/badge/license-MIT-green)
 
-判定由确定性代码完成，模型只能解释；变更必须由人审批，系统从不连接设备、不下发配置、不做转发仿真。
+判定由确定性代码完成，模型只能解释；变更必须由人审批。系统不写入设备：只读采集仅执行白名单 `show` 命令，不下发配置、不做转发仿真。
 
 ![工作台](docs/ui-dashboard.png)
 
