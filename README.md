@@ -12,7 +12,7 @@
 
 ![工作台](docs/ui-dashboard.png)
 
-**3 分钟演示：`docs/demo.mp4` · [演示脚本](docs/DEMO.md) · [架构](docs/ARCHITECTURE.md)**
+**60 秒演示：`docs/demo.mp4` · [演示脚本](docs/DEMO.md) · [架构](docs/ARCHITECTURE.md)**
 
 ## 3 条命令跑起来
 

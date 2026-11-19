@@ -21,6 +21,7 @@ def main() -> int:
     parser.add_argument("--username", required=True)
     parser.add_argument("--password", required=True)
     parser.add_argument("--out", default="docs/demo.mp4")
+    parser.add_argument("--device", default="r1-演示")
     args = parser.parse_args()
 
     out = ROOT / args.out
@@ -38,7 +39,18 @@ def main() -> int:
         page.fill("[data-testid=login-password]", args.password)
         page.click("[data-testid=login-submit]")
         page.wait_for_selector("[data-testid=drift-summary]")
-        page.wait_for_timeout(2500)
+        page.select_option("[data-testid=device-select]", label=args.device)
+        page.wait_for_selector("[data-testid=drift-item] [data-testid=spine-line]")
+        page.wait_for_timeout(1800)
+
+        # Evidence spine: hover a line, then open the exact source line
+        page.locator("[data-testid=drift-item] [data-testid=spine-line]").first.hover()
+        page.wait_for_timeout(1800)
+        page.locator("[data-testid=drift-item] [data-testid=spine-line]").first.click()
+        page.wait_for_selector("[data-testid=evidence-body]")
+        page.wait_for_timeout(2400)
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(600)
 
         # Theme toggle (light -> back to dark)
         page.click("[data-testid=theme-toggle]")
@@ -60,7 +72,9 @@ def main() -> int:
         page.wait_for_selector("[data-testid=finding]")
         page.wait_for_timeout(2200)
         page.evaluate("document.querySelector('[data-testid=rules-result]')?.scrollIntoView({block:'center'})")
-        page.wait_for_timeout(2500)
+        page.wait_for_timeout(2000)
+        page.locator("[data-testid=finding] [data-testid=spine-line]").first.hover()
+        page.wait_for_timeout(1800)
 
         # Create a change request from a finding, submit and approve
         page.click("[data-testid=generate-change]")
@@ -78,9 +92,11 @@ def main() -> int:
         page.click("[data-testid=transition-approve]")
         page.fill("[data-testid=transition-note]", "演示：人工核对后同意")
         page.click("[data-testid=transition-confirm]")
-        page.wait_for_selector("[data-testid=audit-list]")
+        page.wait_for_selector("[data-testid=custody-chain]")
+        page.evaluate("document.querySelector('[data-testid=custody-chain]')?.scrollIntoView({block:'center'})")
+        page.wait_for_timeout(2600)
         page.evaluate("document.querySelector('[data-testid=audit-list]')?.scrollIntoView({block:'center'})")
-        page.wait_for_timeout(2800)
+        page.wait_for_timeout(2000)
 
         # Topology
         page.evaluate("document.querySelector('[data-testid=topo-svg]')?.scrollIntoView({block:'center'})")
