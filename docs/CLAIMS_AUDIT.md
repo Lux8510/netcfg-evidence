@@ -21,6 +21,7 @@
 | C13 | 变更单保存创建时的 Finding 快照 | README 审批节 | `findings_snapshot` 落库 | **强制** | `tests/test_change_requests.py` |
 | C14 | 审批人必须是真实姓名 | README 审批节 | 必填 + 常见系统标识黑名单 + NFKC 规范化 | **部分**（黑名单是启发式） | `tests/test_review_w2.py` |
 | C15 | 审计只追加，不可修改 | README 审批节 | SQLite/PostgreSQL 触发器拒绝 UPDATE/DELETE | **强制**（PostgreSQL 未实测） | `tests/test_review_w2.py::test_audit_events_cannot_be_updated_or_deleted` |
+| C18 | 审计历史可验证，改一条会被发现 | README 数据库层保障 | 事件哈希链 + 头指针 + 验证命令 | **强制**（库所有者可用 DDL 重建） | `tests/test_audit_chain.py` |
 | C16 | 并发审批只有一个成功 | README 审批节 | Compare-And-Set 条件更新 | **强制** | `tests/test_review_w2.py::test_concurrent_approve_and_reject_leave_one_event` |
 | C17 | `executed_on_device` 恒为 false | README 审批节 | 响应常量，无写入设备代码 | **强制** | `tests/test_change_requests.py` |
 | C18 | 解释不能改变判定 | README 解释节 | 解释独立表；Finding 不受影响 | **强制** | `tests/test_claims.py::test_claim_explanation_never_changes_the_verdict` |
@@ -50,6 +51,7 @@
 | C12 只能由 violated 生成 | 强制 | **强制（已下沉）** | `BEFORE INSERT` 子查询校验同设备且 status=violated |
 | C13 保存创建时快照 | 强制 | **部分** | 快照不可更新、条数必须一致；但直接 INSERT 可写内容不实的快照 |
 | C15 审计只追加 | 强制 | **部分** | 行级 UPDATE/DELETE 已拒绝，新增 PostgreSQL `BEFORE TRUNCATE`；库所有者仍可 DROP 触发器 |
+| C18 审计哈希链 | 强制 | **部分** | 改一条/插一条链外事件会被定位；库所有者可用 DDL 重建整条链 |
 | C19 解释行号受引用约束 | 强制 | **强制（已修）** | 中文数字行号无法归一化 → `line_not_normalized` |
 | C29 切换设备不残留 | 强制 | **强制（已补测试）** | 请求序号 + 设备身份双校验；新增延迟响应的 E2E 用例 |
 | B02 部分索引可恢复 | — | **强制（已修）** | 启动时 `CREATE UNIQUE INDEX IF NOT EXISTS`；有重复 active 时拒绝启动 |

@@ -175,14 +175,12 @@ def transition(db: Session, request_id: str, action: str, *, actor: str, note: s
 
 def _audit(db: Session, request: ChangeRequest, action: str, actor: str, note: str,
            idempotency_key: str | None = None) -> AuditEvent:
-    event = AuditEvent(
-        device_id=request.device_id, entity_type="change_request", entity_id=request.id,
+    from engine.audit_chain import append_audit
+    return append_audit(
+        db, device_id=request.device_id, entity_type="change_request", entity_id=request.id,
         action=action, actor=actor, note=note, snapshot=request_payload(request),
         idempotency_key=idempotency_key,
     )
-    db.add(event)
-    db.flush()
-    return event
 
 
 def events(db: Session, request_id: str) -> list[AuditEvent]:

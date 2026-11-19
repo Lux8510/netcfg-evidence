@@ -1,9 +1,12 @@
 PY ?= python3
 
-.PHONY: ui test prop e2e concurrency load model-check user run migrate revision eval cases bundle check review-kit clean
+.PHONY: ui test audit-verify prop e2e concurrency load model-check user run migrate revision eval cases bundle check review-kit clean
 
 ui:
 	cd frontend && npm ci --no-audit --no-fund && npm run build
+
+audit-verify:
+	$(PY) scripts/verify_audit_chain.py
 
 test:
 	$(PY) -m pytest

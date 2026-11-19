@@ -135,6 +135,30 @@ class AuditEvent(Base):
     __table_args__ = (Index("ix_audit_entity", "entity_type", "entity_id", "created_at"),)
 
 
+class AuditChainHead(Base):
+    """Single row pointing at the latest hash-chain entry."""
+
+    __tablename__ = "audit_chain_head"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    last_seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+
+
+class AuditChainEntry(Base):
+    """Append-only hash chain over audit events."""
+
+    __tablename__ = "audit_chain_entries"
+
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    event_id: Mapped[str] = mapped_column(ForeignKey("audit_events.id", ondelete="CASCADE"),
+                                          nullable=False, unique=True)
+    prev_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    entry_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+
+    __table_args__ = (Index("ix_audit_chain_event", "event_id"),)
+
+
 class Explanation(Base):
     """Model output is stored with its validation result; rejected text is kept for audit."""
 
@@ -243,13 +267,15 @@ def _register_guards() -> None:
     from .guards import POSTGRES_TRIGGERS, SQLITE_TRIGGERS
 
     for name, statement in SQLITE_TRIGGERS.items():
-        table = next(t for t in (AuditEvent.__table__, ConfigVersion.__table__, Finding.__table__,
+        table = next(t for t in (AuditEvent.__table__, AuditChainEntry.__table__,
+                                 ConfigVersion.__table__, Finding.__table__,
                                  Explanation.__table__, ChangeRequest.__table__, ChangeRun.__table__)
                      if name.startswith(t.name))
         event.listen(table, "after_create", DDL(statement).execute_if(dialect="sqlite"))
 
     for name, statement in POSTGRES_TRIGGERS.items():
-        table = next(t for t in (AuditEvent.__table__, ConfigVersion.__table__, Finding.__table__,
+        table = next(t for t in (AuditEvent.__table__, AuditChainEntry.__table__,
+                                 ConfigVersion.__table__, Finding.__table__,
                                  Explanation.__table__, ChangeRequest.__table__, ChangeRun.__table__)
                      if name.startswith(t.name))
         event.listen(table, "after_create", DDL(statement).execute_if(dialect="postgresql"))

@@ -18,6 +18,14 @@ SQLITE_TRIGGERS: dict[str, str] = {
         "CREATE TRIGGER IF NOT EXISTS audit_events_no_delete BEFORE DELETE ON audit_events "
         "BEGIN SELECT RAISE(ABORT, 'audit_events is append-only'); END"
     ),
+    "audit_chain_entries_no_update": (
+        "CREATE TRIGGER IF NOT EXISTS audit_chain_entries_no_update BEFORE UPDATE ON audit_chain_entries "
+        "BEGIN SELECT RAISE(ABORT, 'audit_chain_entries is append-only'); END"
+    ),
+    "audit_chain_entries_no_delete": (
+        "CREATE TRIGGER IF NOT EXISTS audit_chain_entries_no_delete BEFORE DELETE ON audit_chain_entries "
+        "BEGIN SELECT RAISE(ABORT, 'audit_chain_entries is append-only'); END"
+    ),
     "config_versions_no_update": (
         "CREATE TRIGGER IF NOT EXISTS config_versions_no_update BEFORE UPDATE ON config_versions "
         "BEGIN SELECT RAISE(ABORT, 'config_versions is append-only'); END"
@@ -107,6 +115,16 @@ POSTGRES_TRIGGERS: dict[str, str] = {
         "DROP TRIGGER IF EXISTS audit_events_no_truncate ON audit_events; "
         "CREATE TRIGGER audit_events_no_truncate BEFORE TRUNCATE ON audit_events "
         "FOR EACH STATEMENT EXECUTE FUNCTION prevent_truncate()"
+    ),
+    "audit_chain_entries_no_update": (
+        "DROP TRIGGER IF EXISTS audit_chain_entries_no_update ON audit_chain_entries; "
+        "CREATE TRIGGER audit_chain_entries_no_update BEFORE UPDATE ON audit_chain_entries "
+        "FOR EACH ROW EXECUTE FUNCTION prevent_mutation()"
+    ),
+    "audit_chain_entries_no_delete": (
+        "DROP TRIGGER IF EXISTS audit_chain_entries_no_delete ON audit_chain_entries; "
+        "CREATE TRIGGER audit_chain_entries_no_delete BEFORE DELETE ON audit_chain_entries "
+        "FOR EACH ROW EXECUTE FUNCTION prevent_mutation()"
     ),
     "config_versions_no_update": (
         "DROP TRIGGER IF EXISTS config_versions_no_update ON config_versions; "

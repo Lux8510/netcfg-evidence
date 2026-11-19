@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml/badge.svg)](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB)
 ![React 19](https://img.shields.io/badge/react-19-61DAFB)
-![tests 209](https://img.shields.io/badge/tests-209-3ECF8E)
+![tests 213](https://img.shields.io/badge/tests-213-3ECF8E)
 ![license MIT](https://img.shields.io/badge/license-MIT-green)
 
 判定由确定性代码完成，模型只能解释；变更必须由人审批。系统不写入设备：只读采集仅执行白名单 `show` 命令，不下发配置、不做转发仿真。
@@ -45,7 +45,7 @@ python3.12 -m venv .venv
 
 | 项 | 数量 |
 | --- | --- |
-| 单元/接口测试 | **209**（含 8 条 hypothesis 属性测试） |
+| 单元/接口测试 | **213**（含 8 条 hypothesis 属性测试） |
 | 浏览器端到端 | **12**（真实 Chrome + 真实服务进程） |
 | 真实并发 | **3**（独立进程 + 多线程 HTTP） |
 | 评测 | 漂移 20/20 · 规则 15/15 · 解释 17/17 |
@@ -253,6 +253,7 @@ make revision m="add column"   # 生成新迁移
 | --- | --- |
 | 配置版本只追加 | `BEFORE UPDATE/DELETE` 触发器 |
 | 审计事件只追加 | `BEFORE UPDATE/DELETE`（PostgreSQL 另有 `BEFORE TRUNCATE`） |
+| 审计哈希链 | 每条审计事件写入 `prev_hash + entry_hash`；`/api/audit/verify` 与 CLI 可验证 |
 | Finding 不可改写 | `BEFORE UPDATE` 触发器 |
 | 解释记录不可改写 | `BEFORE UPDATE` 触发器 |
 | 变更单的证据快照不可改 | `BEFORE UPDATE` 比较 `finding_ids`/`findings_snapshot` |
@@ -262,6 +263,17 @@ make revision m="add column"   # 生成新迁移
 | 未知/未解析的 OSPF 行 | 任何未覆盖规则一律 `undetermined` |
 
 副作用：**删除设备会被触发器阻止**（级联会删除版本与审计）。当前没有删除 API，这是刻意选择。
+
+审计哈希链：
+
+```bash
+.venv/bin/python scripts/verify_audit_chain.py
+# 或 GET /api/audit/verify
+```
+
+每条审计事件按 `seq → prev_hash → entry_hash` 串起来，哈希覆盖事件字段、快照与时间。  
+改任意一条、插一条链外事件、或删一条，都会在验证时定位到第一个断点。  
+边界：拥有 DDL 权限的库所有者仍可重建整条链；它防的是“悄悄改一条”，不是“重写整个数据库”。
 
 ## 变更单与人工审批
 

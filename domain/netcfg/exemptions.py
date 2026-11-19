@@ -99,10 +99,10 @@ def revoke_exemption(db: Session, exemption_id: str, actor: str, reason: str) ->
 
 
 def _audit(db: Session, exemption: DriftExemption, action: str, actor: str, note: str) -> None:
-    db.add(AuditEvent(device_id=exemption.device_id, entity_type="drift_exemption",
-                      entity_id=exemption.id, action=action, actor=actor, note=note,
-                      snapshot=payload(exemption)))
-    db.flush()
+    from engine.audit_chain import append_audit
+    append_audit(db, device_id=exemption.device_id, entity_type="drift_exemption",
+                 entity_id=exemption.id, action=action, actor=actor, note=note,
+                 snapshot=payload(exemption))
 
 
 def payload(exemption: DriftExemption) -> dict[str, Any]:
