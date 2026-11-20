@@ -442,3 +442,48 @@ def test_evidence_spine_links_drift_and_rule_evidence(page, server):
     page.locator("[data-testid=drift-item] [data-testid=spine-line]").first.click()
     page.wait_for_function("() => document.querySelector('[data-testid=evidence-body]')"
                            "?.textContent?.includes('ip ospf cost 30')")
+
+
+def _diagnosis_bundle(config: str, node: str = "r2") -> dict:
+    import hashlib
+    import json
+
+    def canonical(payload):
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hashlib.sha256(config.encode("utf-8")).hexdigest()
+    bundle = {
+        "schema_version": 2, "source": "netsecops-agent", "trace_id": "e" * 64,
+        "created_at_utc": "2026-11-20T00:00:00+00:00",
+        "device": {"name": node},
+        "diagnosis": {"status": "normal", "conclusion": "两端 Area 一致，连通正常。",
+                       "repair_suggestion": None, "evidence_ids": ["E1"]},
+        "config_snapshot": {"node": node, "target": node, "evidence_id": "E1",
+                            "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
+                            "text": config, "sha256": digest},
+        "proposed_commands": [],
+        "citations": [{"evidence_id": "E1", "tool": "query_interface_config",
+                       "arguments": {"node": node, "interface": "eth1"}, "node": node,
+                       "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
+                       "content_sha256": digest, "excerpt": config[:120]}],
+        "link": {"node": node, "interface": "eth1", "peer": "r1", "peer_interface": "eth2"},
+        "lab_only": True,
+    }
+    bundle["bundle_sha256"] = hashlib.sha256(canonical(bundle)).hexdigest()
+    return bundle
+
+
+def test_diagnosis_import_is_visible_from_device_detail(page, server):
+    device = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    api_post(server, f"/api/devices/{device}/diagnosis-imports",
+             {"bundle": _diagnosis_bundle(BASELINE, node="r2")})
+
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", device)
+    page.wait_for_selector("[data-testid=diagnosis-imports] [data-testid=diagnosis-import]")
+    card = page.locator("[data-testid=diagnosis-imports]").inner_text()
+    assert "normal" in card and "两端 Area 一致" in card
+
+    page.locator("[data-testid=diagnosis-import]").first.click()
+    page.wait_for_selector("[data-testid=diagnosis-evidence]")
+    detail = page.locator("[data-testid=diagnosis-evidence]").inner_text()
+    assert "E1" in detail and "query_interface_config" in detail

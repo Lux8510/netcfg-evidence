@@ -71,6 +71,17 @@ export type Link = {
   device_a: { id: string; name: string; interface: string };
   device_b: { id: string; name: string; interface: string };
 };
+export type DiagnosisImport = {
+  id: string; device_id: string; status: 'draft' | 'no_draft'; duplicate: boolean;
+  bundle_sha256: string; trace_id: string; submitted_by: string;
+  diagnosis_status: string; diagnosis_conclusion: string;
+  config_version_id: string; rule_run_id: string; finding_id: string | null;
+  change_request_id: string | null; no_draft_reason: string | null;
+  external_commands: string[];
+  evidence: { evidence_id: string; tool: string; node: string | null; kind?: string;
+    command?: string[]; exit_code?: number; content_sha256: string; excerpt?: string }[];
+  submitted_at: string;
+};
 
 export class ApiError extends Error {
   code: string;

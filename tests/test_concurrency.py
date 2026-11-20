@@ -176,6 +176,7 @@ def _diagnosis_bundle(config: str, trace_id: str) -> dict:
                        "arguments": {"node": "r2", "interface": "eth1"}, "node": "r2",
                        "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
                        "content_sha256": digest, "excerpt": config[:80]}],
+        "link": {"node": "r2", "interface": "eth1", "peer": "r1", "peer_interface": "eth2"},
         "lab_only": True,
     }
     bundle["bundle_sha256"] = hashlib.sha256(canonical(bundle)).hexdigest()
@@ -184,7 +185,7 @@ def _diagnosis_bundle(config: str, trace_id: str) -> dict:
 
 def test_concurrent_diagnosis_import_keeps_one_record(server):
     base, token = server
-    device_id = create_device(server, "diag-r2")
+    device_id = create_device(server, "r2")
     bundle = _diagnosis_bundle(BASELINE, "9" * 64)
 
     def do_import(_):

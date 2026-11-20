@@ -116,6 +116,11 @@ def r2_text() -> str:
     return (SAMPLES / "r2.conf").read_text(encoding="utf-8")
 
 
+@pytest.fixture()
+def r4_text() -> str:
+    return (SAMPLES / "r4.conf").read_text(encoding="utf-8")
+
+
 def create_device(client, name: str = "r1") -> str:
     response = client.post("/api/devices", json={"name": name})
     assert response.status_code == 201, response.text

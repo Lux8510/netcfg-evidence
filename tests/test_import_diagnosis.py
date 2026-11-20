@@ -15,7 +15,8 @@ def _sha(text: str) -> str:
 
 def make_bundle(config: str, *, node: str = "r2", status: str = "ospf_area_mismatch",
                 trace_id: str = "a" * 64, commands: list[str] | None = None,
-                evidence_id: str = "E007", citations: list[dict] | None = None) -> dict:
+                evidence_id: str = "E007", citations: list[dict] | None = None,
+                link: dict | None = None) -> dict:
     snapshot_sha = _sha(config)
     if citations is None:
         citations = [{
@@ -40,6 +41,8 @@ def make_bundle(config: str, *, node: str = "r2", status: str = "ospf_area_misma
         "proposed_commands": commands if commands is not None
         else ["no ip ospf area 0.0.0.1", "ip ospf area 0.0.0.0"],
         "citations": citations,
+        "link": link if link is not None else {
+            "node": node, "interface": "eth1", "peer": "r1", "peer_interface": "eth2"},
         "lab_only": True,
     }
     bundle["bundle_sha256"] = hashlib.sha256(canonical(bundle)).hexdigest()
@@ -85,8 +88,8 @@ def test_import_rejects_node_target_or_evidence_tampering(r1_text):
 
 def _area_mismatch_setup(app_client, r1_text, r2_text):
     """Register r1 (peer) and r2 (target) with a link, returning their ids."""
-    a = create_device(app_client, "peer-r1")
-    b = create_device(app_client, "target-r2")
+    a = create_device(app_client, "r1")
+    b = create_device(app_client, "r2")
     import_config(app_client, a, r1_text)
     mismatched = r2_text.replace("network 10.12.0.0/30 area 0.0.0.0",
                                  "network 10.12.0.0/30 area 0.0.0.1")
@@ -122,7 +125,7 @@ def test_import_creates_draft_from_relevant_local_finding(app_client, r1_text, r
 
 
 def test_irrelevant_violation_saves_evidence_without_draft(app_client, r1_text):
-    device = create_device(app_client, "irrelevant")
+    device = create_device(app_client, "r2")
     broken = r1_text.replace(" passive-interface lo\n", "")
     bundle = make_bundle(broken, node="r2", status="interface_admin_down")
     response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle})
@@ -134,7 +137,7 @@ def test_irrelevant_violation_saves_evidence_without_draft(app_client, r1_text):
 
 
 def test_normal_or_insufficient_saves_evidence_without_draft(app_client, r1_text):
-    device = create_device(app_client, "normal-import")
+    device = create_device(app_client, "r2")
     for status in ("normal", "insufficient_evidence", "collection_failure"):
         bundle = make_bundle(r1_text, node="r2", status=status, trace_id=("b" * 64 if status == "normal" else "c" * 64 if status == "insufficient_evidence" else "d" * 64))
         response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle})
@@ -164,7 +167,7 @@ def test_idempotent_reimport_returns_same_ids(app_client, r1_text, r2_text):
 
 
 def test_reexport_same_trace_dedups_by_trace_id(app_client, r1_text):
-    device = create_device(app_client, "reexport")
+    device = create_device(app_client, "r2")
     bundle = make_bundle(r1_text, node="r2", status="normal", trace_id="e" * 64)
     first = app_client.post(f"/api/devices/{device}/diagnosis-imports",
                             json={"bundle": bundle}).json()["data"]
@@ -180,7 +183,7 @@ def test_reexport_same_trace_dedups_by_trace_id(app_client, r1_text):
 
 
 def test_import_does_not_move_an_existing_baseline(app_client, r1_text):
-    device = create_device(app_client, "baseline-guard")
+    device = create_device(app_client, "r2")
     baseline_version = import_config(app_client, device, r1_text).json()["data"]
     app_client.post(f"/api/devices/{device}/baseline", json={"version_id": baseline_version["id"]})
     before = app_client.get(f"/api/devices/{device}/baseline").json()["data"]
@@ -193,7 +196,7 @@ def test_import_does_not_move_an_existing_baseline(app_client, r1_text):
 
 
 def test_snapshot_device_mismatch_is_rejected(app_client, r1_text):
-    device = create_device(app_client, "mismatch-reject")
+    device = create_device(app_client, "r2")
     bundle = make_bundle(r1_text, node="r2", status="normal", trace_id="a1" + "0" * 62)
     bundle["device"]["name"] = "r1"  # device name no longer matches snapshot node
     bundle["bundle_sha256"] = hashlib.sha256(canonical(bundle)).hexdigest()
@@ -207,7 +210,7 @@ def test_snapshot_device_mismatch_is_rejected(app_client, r1_text):
 
 
 def test_record_is_traceable_from_device_detail(app_client, r1_text):
-    device = create_device(app_client, "traceable")
+    device = create_device(app_client, "r2")
     bundle = make_bundle(r1_text, node="r2", status="normal", trace_id="b1" + "0" * 62)
     result = app_client.post(f"/api/devices/{device}/diagnosis-imports",
                              json={"bundle": bundle}).json()["data"]
@@ -217,3 +220,84 @@ def test_record_is_traceable_from_device_detail(app_client, r1_text):
     assert row["submitted_by"] == "何深"
     assert row["config_version_id"] and row["rule_run_id"]
     assert row["diagnosis_status"] == "normal"
+
+
+def test_wrong_device_node_binding_is_rejected(app_client, r1_text):
+    """Importing a valid r2 bundle into a device named otherwise must 422."""
+    unrelated = create_device(app_client, "unrelated")
+    bundle = make_bundle(r1_text, node="r2", status="normal", trace_id="10" + "0" * 62)
+    response = app_client.post(f"/api/devices/{unrelated}/diagnosis-imports",
+                               json={"bundle": bundle})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "DEVICE_NODE_MISMATCH"
+    assert app_client.get(f"/api/devices/{unrelated}/configs").json()["data"] == []
+    assert app_client.get(f"/api/devices/{unrelated}/rules/runs").json()["data"] == []
+    assert app_client.get(f"/api/devices/{unrelated}/change-requests").json()["data"] == []
+    assert app_client.get(f"/api/devices/{unrelated}/diagnosis-imports").json()["data"] == []
+
+
+def test_malformed_device_field_is_422_not_500(app_client, r1_text):
+    device = create_device(app_client, "r2")
+    bundle = make_bundle(r1_text, node="r2", status="normal", trace_id="11" + "0" * 62)
+    bundle["device"] = "r2"  # string instead of object
+    body = {k: v for k, v in bundle.items() if k != "bundle_sha256"}
+    bundle["bundle_sha256"] = hashlib.sha256(canonical(body)).hexdigest()
+    response = app_client.post(f"/api/devices/{device}/diagnosis-imports",
+                               json={"bundle": bundle})
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "INVALID_BUNDLE"
+
+
+def test_preferred_rule_outside_mapping_sets_reason(app_client, r1_text, r2_text):
+    _a, target, mismatched = _area_mismatch_setup(app_client, r1_text, r2_text)
+    bundle = make_bundle(mismatched, node="r2", status="ospf_area_mismatch",
+                         trace_id="12" + "0" * 62)
+    response = app_client.post(f"/api/devices/{target}/diagnosis-imports",
+                               json={"bundle": bundle, "preferred_rule": "R001"})
+    assert response.status_code == 201, response.text
+    result = response.json()["data"]
+    assert result["status"] == "no_draft"
+    assert result["no_draft_reason"] and "R001" in result["no_draft_reason"]
+
+
+def test_snapshot_citation_tampering_is_rejected(app_client, r1_text):
+    device = create_device(app_client, "r2")
+    bundle = make_bundle(r1_text, node="r2", status="normal", trace_id="13" + "0" * 62)
+    bundle["citations"][0]["exit_code"] = 1  # snapshot observation no longer successful
+    bundle["citations"][0]["content_sha256"] = hashlib.sha256(
+        (bundle["citations"][0].get("excerpt", "") + "tampered").encode()).hexdigest()
+    body = {k: v for k, v in bundle.items() if k != "bundle_sha256"}
+    bundle["bundle_sha256"] = hashlib.sha256(canonical(body)).hexdigest()
+    response = app_client.post(f"/api/devices/{device}/diagnosis-imports",
+                               json={"bundle": bundle})
+    assert response.status_code == 422
+
+
+def test_duplicate_evidence_id_is_rejected(app_client, r1_text):
+    bundle = make_bundle(r1_text, node="r2", status="normal", trace_id="14" + "0" * 62)
+    bundle["citations"].append(dict(bundle["citations"][0]))
+    body = {k: v for k, v in bundle.items() if k != "bundle_sha256"}
+    bundle["bundle_sha256"] = hashlib.sha256(canonical(body)).hexdigest()
+    with pytest.raises(ImportError_):
+        verify_bundle(bundle)
+
+
+def test_r005_draft_is_bound_to_the_bundle_link(app_client, r2_text, r4_text):
+    """A mismatched link on another interface must not trigger a draft for the bundle's link."""
+    r2 = create_device(app_client, "r2")
+    r4 = create_device(app_client, "r4")
+    import_config(app_client, r4, r4_text)
+    r2_mismatched = r2_text.replace("network 10.24.0.0/30 area 0.0.0.0",
+                                    "network 10.24.0.0/30 area 0.0.0.1")
+    import_config(app_client, r2, r2_mismatched)
+    app_client.post("/api/links", json={
+        "device_a_id": r2, "iface_a": "eth2", "device_b_id": r4, "iface_b": "eth1"})
+    # Bundle claims the r2<->r1 eth1 link, which does not exist / is not mismatched here.
+    bundle = make_bundle(r2_mismatched, node="r2", status="ospf_area_mismatch",
+                         trace_id="15" + "0" * 62,
+                         link={"node": "r2", "interface": "eth1", "peer": "r1", "peer_interface": "eth2"})
+    response = app_client.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle})
+    assert response.status_code == 201, response.text
+    result = response.json()["data"]
+    assert result["status"] == "no_draft"
+    assert result["change_request_id"] is None

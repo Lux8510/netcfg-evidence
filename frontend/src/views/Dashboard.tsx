@@ -5,7 +5,8 @@ import {
   LogOut, Network, Plus, RefreshCw, ShieldCheck, Sparkles, Upload, Wallet,
 } from 'lucide-react';
 import {
-  ApiError, api, type AuditRow, type ChangeRequest, type ChangeRun, type Device, type DeviceTarget, type DriftItem, type DriftReport,
+  ApiError, api, type AuditRow, type ChangeRequest, type ChangeRun, type Device, type DeviceTarget,
+  type DiagnosisImport, type DriftItem, type DriftReport,
   type Exemption, type Explanation, type Finding, type Link, type RuleCheck, type User, type Version,
 } from '../lib/api';
 import { diffRows } from '../lib/diff';
@@ -36,6 +37,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
   const [audit, setAudit] = useState<AuditRow[]>([]);
   const [target, setTarget] = useState<DeviceTarget | null>(null);
   const [changeRuns, setChangeRuns] = useState<ChangeRun[]>([]);
+  const [diagnosisImports, setDiagnosisImports] = useState<DiagnosisImport[]>([]);
   const [changeDialog, setChangeDialog] = useState<{ mode: 'start' | 'complete'; runId?: string } | null>(null);
   const [busy, setBusy] = useState('');
   const [includeCross, setIncludeCross] = useState(true);
@@ -58,11 +60,11 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
     // Clear first: the previous device's data must never be shown under the new selection.
     setVersions([]); setBaseline(null); setDrift(null); setRuleCheck(null);
     setChanges([]); setLinks([]); setExplanations([]); setAudit([]);
-    setTarget(null); setChangeRuns([]);
+    setTarget(null); setChangeRuns([]); setDiagnosisImports([]);
     if (!id) return;
     const stale = () => seq !== loadSeq.current || deviceRef.current !== id;
     const [nextVersions, nextBaseline, nextDrift, nextChanges, nextLinks, nextExplain, nextAudit,
-      nextTarget, nextChangeRuns] = await Promise.all([
+      nextTarget, nextChangeRuns, nextDiagnosisImports] = await Promise.all([
       api<Version[]>(`/devices/${id}/configs`),
       api<{ config_version_id: string } | null>(`/devices/${id}/baseline`),
       api<DriftReport[]>(`/devices/${id}/drift`),
@@ -72,6 +74,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
       api<AuditRow[]>(`/devices/${id}/audit`),
       api<DeviceTarget | null>(`/devices/${id}/target`),
       api<ChangeRun[]>(`/devices/${id}/change-runs`),
+      api<DiagnosisImport[]>(`/devices/${id}/diagnosis-imports`),
     ]);
     if (stale()) return;
     setVersions(nextVersions);
@@ -83,6 +86,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
     setAudit(nextAudit);
     setTarget(nextTarget);
     setChangeRuns(nextChangeRuns);
+    setDiagnosisImports(nextDiagnosisImports);
 
     const runs = await api<{ run_id: string; counts: Record<string, number>; config_version_id: string }[]>(
       `/devices/${id}/rules/runs`);
@@ -293,6 +297,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
             <div className="space-y-4">
               <TopologyCard links={deviceLinks} currentId={deviceId} onSelect={setDeviceId} />
               <AuditCard rows={audit} />
+              <DiagnosisImportCard rows={diagnosisImports} />
             </div>
           </StaggerItem>
 
@@ -834,6 +839,97 @@ function AuditCard({ rows }: { rows: AuditRow[] }) {
         ))}
       </div>
     </Card>
+  );
+}
+
+/* ---------------- diagnosis imports ---------------- */
+function DiagnosisImportCard({ rows }: { rows: DiagnosisImport[] }) {
+  const [detail, setDetail] = useState<DiagnosisImport | null>(null);
+  return (
+    <Card className="h-full">
+      <CardHeader title="诊断导入" hint="NetSecOps 证据包：本地复算后才可能建草稿"
+                  action={<Sparkles size={16} className="text-muted" />} />
+      <div className="max-h-[320px] space-y-2 overflow-auto pr-1" data-testid="diagnosis-imports">
+        {rows.length === 0 && <EmptyState title="还没有诊断导入" hint="用 scripts/import_diagnosis.py 导入证据包" />}
+        {rows.map((row) => (
+          <button key={row.id} type="button" data-testid="diagnosis-import"
+                  onClick={() => setDetail(row)}
+                  className="block w-full rounded-xl border border-line bg-panel-2 p-3 text-left transition-colors hover:border-accent/40">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge tone={row.status === 'draft' ? 'ok' : 'neutral'}>{row.status === 'draft' ? '已建草稿' : '仅存证据'}</Badge>
+              <code className="mono text-[11px] text-fg">{row.diagnosis_status}</code>
+              {row.duplicate && <Badge tone="accent">重复</Badge>}
+            </div>
+            <p className="mt-1.5 text-[11px] leading-relaxed text-fg/90">{row.diagnosis_conclusion}</p>
+            <p className="mt-1.5 text-[10px] text-muted">
+              提交 {row.submitted_by} · {when(row.submitted_at)}
+              {row.no_draft_reason ? ` · ${row.no_draft_reason}` : ''}
+            </p>
+          </button>
+        ))}
+      </div>
+      <DiagnosisImportDialog row={detail} onClose={() => setDetail(null)} />
+    </Card>
+  );
+}
+
+function DiagnosisImportDialog({ row, onClose }: { row: DiagnosisImport | null; onClose: () => void }) {
+  return (
+    <Dialog open={!!row} onClose={onClose} title="诊断导入详情" wide>
+      {row && (
+        <div className="space-y-3 text-xs">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="诊断状态"><code className="mono block">{row.diagnosis_status}</code></Field>
+            <Field label="提交人"><span>{row.submitted_by} · {when(row.submitted_at)}</span></Field>
+          </div>
+          <Field label="结论"><p className="leading-relaxed text-fg/90">{row.diagnosis_conclusion}</p></Field>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="配置版本"><code className="mono block break-all">{row.config_version_id}</code></Field>
+            <Field label="规则运行"><code className="mono block break-all">{row.rule_run_id}</code></Field>
+            <Field label="变更单"><code className="mono block break-all">{row.change_request_id ?? '—'}</code></Field>
+            <Field label="Finding"><code className="mono block break-all">{row.finding_id ?? '—'}</code></Field>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Field label="bundle_sha256"><code className="mono block break-all">{row.bundle_sha256}</code></Field>
+            <Field label="trace_id"><code className="mono block break-all">{row.trace_id}</code></Field>
+          </div>
+          {row.no_draft_reason && <Field label="未建草稿原因"><p className="text-muted">{row.no_draft_reason}</p></Field>}
+          {row.external_commands.length > 0 && (
+            <Field label="外部建议命令（仅存证，未进入草稿）">
+              <pre className="mono overflow-auto rounded-lg bg-panel-2 p-2 text-[10px] text-muted">
+                {row.external_commands.join('\n')}
+              </pre>
+            </Field>
+          )}
+          <div>
+            <p className="label mb-1">原始证据（摘要与摘录）</p>
+            <div className="max-h-64 space-y-1.5 overflow-auto pr-1" data-testid="diagnosis-evidence">
+              {row.evidence.map((item, index) => (
+                <div key={`${item.evidence_id}-${index}`}
+                     className="rounded-lg border border-line bg-panel-2 p-2">
+                  <div className="flex flex-wrap items-center gap-2 text-[10px]">
+                    <code className="mono text-fg">{item.evidence_id}</code>
+                    <span className="text-muted">{item.tool}</span>
+                    {item.node && <span className="text-muted">节点 {item.node}</span>}
+                    {item.exit_code !== undefined && (
+                      <Badge tone={item.exit_code === 0 ? 'ok' : 'danger'}>exit {item.exit_code}</Badge>
+                    )}
+                  </div>
+                  <code className="mono mt-1 block break-all text-[9px] text-muted/70">
+                    {item.content_sha256}
+                  </code>
+                  {item.excerpt && (
+                    <pre className="mono mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all text-[10px] text-fg/80">
+                      {item.excerpt}
+                    </pre>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </Dialog>
   );
 }
 

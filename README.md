@@ -330,12 +330,13 @@ NetSecOps Agent 诊断结束后可以导出带哈希的证据包，netcfg 负责
 python labs/ospf-baseline/handoff.py --trace trace.json --device r2 --target r2 --out handoff.json
 
 # netcfg 侧：显式指定目标设备（只匹配已登记设备，不自动创建）
+# 目标设备名必须等于包内节点（snapshot.node），否则拒绝
 python scripts/import_diagnosis.py --bundle handoff.json --username 何深 --device-id <uuid>
 ```
 
 导入通过认证的 `POST /api/devices/{device_id}/diagnosis-imports` 在**一个事务**里完成：
 
-1. 校验 bundle 哈希、trace_id、快照节点/目标、命令与内容摘要（两级摘要错、未知 schema、节点或目标不一致、缺失快照引用均拒绝）；
+1. 校验 bundle 哈希、trace_id、快照节点/目标、命令与内容摘要，并核对目标设备名与包内节点一致（两级摘要错、未知 schema、节点或目标不一致、缺失快照引用、设备错绑均拒绝）；
 2. 复用配置导入、规则检查（含已登记链路的 R005）与变更单服务；
 3. 只对**适用的本地 violated Finding** 创建草稿，修复方案由本地 Finding 推导，外部建议命令存入导入记录供查看，不进入草稿；
 4. 正常、采集失败、证据不足、无合格 Finding 时保存证据与规则结果，草稿为空；

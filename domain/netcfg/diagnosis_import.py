@@ -60,7 +60,8 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     _require(bundle, isinstance(trace_id, str) and len(trace_id) == 64,
              "bundle has no valid trace_id")
 
-    device = bundle.get("device") or {}
+    _require(bundle, isinstance(bundle.get("device"), dict), "device must be an object")
+    device = bundle["device"]
     _require(bundle, isinstance(device.get("name"), str) and device["name"].strip(),
              "bundle has no device name")
 
@@ -92,6 +93,16 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     _require(bundle, hashlib.sha256(text.encode("utf-8")).hexdigest() == snapshot.get("sha256"),
              "config snapshot hash does not match")
 
+    link = bundle.get("link")
+    _require(bundle, isinstance(link, dict), "bundle has no link")
+    _require(bundle, link.get("node") == snapshot["node"], "link node does not match snapshot node")
+    _require(bundle, isinstance(link.get("interface"), str) and link["interface"].strip(),
+             "link has no local interface")
+    _require(bundle, isinstance(link.get("peer"), str) and link["peer"].strip(),
+             "link has no peer node")
+    _require(bundle, isinstance(link.get("peer_interface"), str) and link["peer_interface"].strip(),
+             "link has no peer interface")
+
     _require(bundle, isinstance(bundle.get("proposed_commands"), list),
              "bundle has no proposed_commands list")
     _require(bundle, all(isinstance(item, str) for item in bundle["proposed_commands"]),
@@ -104,19 +115,47 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         _require(bundle, isinstance(item, dict), "citation must be an object")
         _require(bundle, isinstance(item.get("evidence_id"), str) and item["evidence_id"],
                  "citation has no evidence_id")
+        _require(bundle, item["evidence_id"] not in by_id, "citation evidence_id is duplicated")
+        _require(bundle, isinstance(item.get("tool"), str) and item["tool"], "citation has no tool")
         _require(bundle, isinstance(item.get("node"), str) or item.get("node") is None,
                  "citation node is invalid")
+        _require(bundle, isinstance(item.get("command"), list), "citation command is invalid")
+        _require(bundle, isinstance(item.get("exit_code"), int), "citation exit_code is invalid")
         _require(bundle, isinstance(item.get("content_sha256"), str) and len(item["content_sha256"]) == 64,
                  "citation has no content digest")
         by_id[item["evidence_id"]] = item
 
     snapshot_citation = by_id.get(snapshot["evidence_id"])
     _require(bundle, snapshot_citation is not None, "snapshot evidence is missing from citations")
+    _require(bundle, snapshot_citation["tool"] == "query_interface_config",
+             "snapshot citation is not a running-config observation")
     _require(bundle, snapshot_citation["node"] == snapshot["node"],
              "snapshot citation belongs to another node")
+    _require(bundle, any("show running-config" in str(part) for part in snapshot_citation["command"]),
+             "snapshot citation command is not a running-config collection")
+    _require(bundle, snapshot_citation["exit_code"] == 0,
+             "snapshot citation command did not succeed")
     _require(bundle, snapshot_citation["content_sha256"] == snapshot["sha256"],
              "snapshot citation content does not match the snapshot")
     return bundle
+
+
+def _finding_matches_link(finding: Finding, link: dict[str, Any], local_version_id: str) -> bool:
+    """A per-link R005 finding must be about the bundle's link and both versions."""
+    evidence = finding.evidence or []
+    if len(evidence) < 2:
+        return False
+    local, peer = evidence[0], evidence[1]
+    parts = (local.get("path") or "").split(".")
+    if len(parts) < 2 or parts[0] != "interface" or not parts[1]:
+        return False
+    if parts[1] != link.get("interface"):
+        return False
+    if local.get("version_id") != local_version_id:
+        return False
+    if not isinstance(peer.get("version_id"), str) or not peer["version_id"]:
+        return False
+    return True
 
 
 def _derive_remediation(finding: Finding) -> list[str]:
@@ -143,7 +182,12 @@ def _derive_remediation(finding: Finding) -> list[str]:
 def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor: str,
                      *, preferred_rule: str | None = None) -> dict[str, Any]:
     bundle = verify_bundle(bundle)
-    _device(db, device_id)
+    device = _device(db, device_id)
+    snapshot = bundle["config_snapshot"]
+    if device.name != snapshot["node"]:
+        raise ServiceError("DEVICE_NODE_MISMATCH",
+                           f"目标设备 {device.name} 与包内节点 {snapshot['node']} 不一致；"
+                           "请选择名称与该节点一致的设备", 422)
 
     existing = db.scalar(select(DiagnosisImport).where(
         DiagnosisImport.device_id == device_id,
@@ -166,25 +210,31 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
         raise ServiceError("FINDING_VERSION_MISMATCH", "Finding 未绑定导入的版本", 500)
 
     # Resolve eligibility against the stored ORM finding rows.
+    no_draft_reason: str | None = None
     rules = DIAGNOSIS_RULES.get(diagnosis["status"], ())
     if preferred_rule:
         if preferred_rule not in rules:
-            rules = ()
             no_draft_reason = f"指定规则 {preferred_rule} 不适用于诊断 {diagnosis['status']}"
+            rules = ()
         else:
             rules = (preferred_rule,)
+    if not rules and no_draft_reason is None:
+        no_draft_reason = f"诊断 {diagnosis['status']} 没有对应的本地规则，不能自动生成变更单"
+
     eligible: Finding | None = None
-    no_draft_reason = None
+    link = bundle["link"]
     if rules:
         for item in run["findings"]:
-            if item["status"] == "violated" and item["rule_id"] in rules:
-                eligible = db.get(Finding, item["id"])
-                break
+            if item["status"] != "violated" or item["rule_id"] not in rules:
+                continue
+            candidate = db.get(Finding, item["id"])
+            # Bound the draft to the link the bundle refers to (R005 is per-link).
+            if diagnosis["status"] == "ospf_area_mismatch" and not _finding_matches_link(candidate, link, version.id):
+                continue
+            eligible = candidate
+            break
         if eligible is None:
             no_draft_reason = f"没有符合 {diagnosis['status']} 的 violated Finding（{', '.join(rules)}）"
-    else:
-        no_draft_reason = (f"诊断 {diagnosis['status']} 没有对应的本地规则，不能自动生成变更单"
-                           if preferred_rule is None else no_draft_reason)
 
     finding_id = None
     change_request_id = None
@@ -277,12 +327,14 @@ def import_payload(record: DiagnosisImport, *, duplicate: bool = False) -> dict[
         "trace_id": record.trace_id,
         "submitted_by": record.submitted_by,
         "diagnosis_status": record.diagnosis_status,
+        "diagnosis_conclusion": record.diagnosis_conclusion,
         "config_version_id": record.config_version_id,
         "rule_run_id": record.rule_run_id,
         "finding_id": record.finding_id,
         "change_request_id": record.change_request_id,
         "no_draft_reason": record.no_draft_reason,
         "external_commands": record.external_commands,
+        "evidence": record.evidence,
         "submitted_at": record.submitted_at.isoformat(),
     }
 
