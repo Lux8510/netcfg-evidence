@@ -118,6 +118,11 @@ class ExplainBody(StrictBody):
     run_id: str | None = Field(default=None, min_length=36, max_length=36)
 
 
+class DiagnosisImportBody(StrictBody):
+    bundle: dict
+    preferred_rule: str | None = Field(default=None, max_length=16)
+
+
 class TransitionBody(StrictBody):
     note: str = Field(min_length=1, max_length=1000)
     actor: str = Field(default="", max_length=80)  # ignored: identity comes from the session
@@ -441,6 +446,29 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     def get_change_run(run_id: str, db: Session = Depends(get_db)):
         from domain.netcfg import collection
         return ok(collection.change_run_payload(db, collection.get_change_run(db, run_id)))
+
+    @app.post("/api/devices/{device_id}/diagnosis-imports", status_code=201)
+    def import_diagnosis(device_id: str, body: DiagnosisImportBody, request: Request,
+                         db: Session = Depends(get_db)):
+        from domain.netcfg import diagnosis_import
+        try:
+            record = diagnosis_import.import_diagnosis(
+                db, device_id, body.bundle, request.state.user.username,
+                preferred_rule=body.preferred_rule)
+        except diagnosis_import.ImportError_ as exc:
+            raise service.ServiceError("INVALID_BUNDLE", str(exc), 422) from exc
+        return ok(record)
+
+    @app.get("/api/devices/{device_id}/diagnosis-imports")
+    def list_diagnosis_imports(device_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import diagnosis_import
+        return ok([diagnosis_import.import_payload(row)
+                   for row in diagnosis_import.list_imports(db, device_id)])
+
+    @app.get("/api/diagnosis-imports/{import_id}")
+    def get_diagnosis_import(import_id: str, db: Session = Depends(get_db)):
+        from domain.netcfg import diagnosis_import
+        return ok(diagnosis_import.import_payload(diagnosis_import.get_import(db, import_id)))
 
     @app.post("/api/devices/{device_id}/change-requests", status_code=201)
     def create_change_request(device_id: str, body: ChangeRequestBody, request: Request,

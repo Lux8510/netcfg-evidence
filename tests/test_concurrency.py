@@ -153,3 +153,53 @@ def test_concurrent_approve_and_reject_leave_one_decision(server):
     assert state["status"] in {"approved", "rejected"}
     decisions = [event["action"] for event in events if event["action"] in {"approve", "reject"}]
     assert len(decisions) == 1
+
+
+def _diagnosis_bundle(config: str, trace_id: str) -> dict:
+    import hashlib
+    import json
+
+    def canonical(payload):
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    digest = hashlib.sha256(config.encode("utf-8")).hexdigest()
+    bundle = {
+        "schema_version": 2, "source": "netsecops-agent", "trace_id": trace_id,
+        "created_at_utc": "2026-11-20T00:00:00+00:00",
+        "device": {"name": "r2"},
+        "diagnosis": {"status": "normal", "conclusion": "结论", "repair_suggestion": None,
+                       "evidence_ids": ["E1"]},
+        "config_snapshot": {"node": "r2", "target": "r2", "evidence_id": "E1",
+                            "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
+                            "text": config, "sha256": digest},
+        "proposed_commands": [],
+        "citations": [{"evidence_id": "E1", "tool": "query_interface_config",
+                       "arguments": {"node": "r2", "interface": "eth1"}, "node": "r2",
+                       "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
+                       "content_sha256": digest, "excerpt": config[:80]}],
+        "lab_only": True,
+    }
+    bundle["bundle_sha256"] = hashlib.sha256(canonical(bundle)).hexdigest()
+    return bundle
+
+
+def test_concurrent_diagnosis_import_keeps_one_record(server):
+    base, token = server
+    device_id = create_device(server, "diag-r2")
+    bundle = _diagnosis_bundle(BASELINE, "9" * 64)
+
+    def do_import(_):
+        with client(token) as http:
+            return http.post(base + f"/api/devices/{device_id}/diagnosis-imports",
+                             json={"bundle": bundle})
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(do_import, range(4)))
+    assert all(response.status_code == 201 for response in results), \
+        [response.text for response in results]
+    ids = {response.json()["data"]["id"] for response in results}
+    assert len(ids) == 1
+    with client(token) as http:
+        imports = http.get(base + f"/api/devices/{device_id}/diagnosis-imports").json()["data"]
+        versions = http.get(base + f"/api/devices/{device_id}/configs").json()["data"]
+        runs = http.get(base + f"/api/devices/{device_id}/rules/runs").json()["data"]
+    assert len(imports) == 1 and len(versions) == 1 and len(runs) == 1

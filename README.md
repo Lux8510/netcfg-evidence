@@ -326,15 +326,23 @@ draft -> submit -> pending_approval -> approve -> approved -> apply -> applied
 NetSecOps Agent 诊断结束后可以导出带哈希的证据包，netcfg 负责“第二次独立判定”：
 
 ```bash
-# NetSecOps 侧
-python labs/ospf-baseline/handoff.py --trace trace.json --device r1 --target r2 --out handoff.json
+# NetSecOps 侧：--device 必须等于快照来源节点
+python labs/ospf-baseline/handoff.py --trace trace.json --device r2 --target r2 --out handoff.json
 
-# netcfg 侧
-python scripts/import_diagnosis.py --bundle handoff.json --username 何深
+# netcfg 侧：显式指定目标设备（只匹配已登记设备，不自动创建）
+python scripts/import_diagnosis.py --bundle handoff.json --username 何深 --device-id <uuid>
 ```
 
-导入时会：校验 bundle 与配置快照哈希 → 导入候选版本（**不移动现有基线**）→ 用 netcfg 自己的规则复算 → 只关联 netcfg 产生的 Finding → 创建草稿变更单。  
-外部诊断结论只写入 rationale，**不改变判定**。这样两个项目共享证据，但各自保留判定权。
+导入通过认证的 `POST /api/devices/{device_id}/diagnosis-imports` 在**一个事务**里完成：
+
+1. 校验 bundle 哈希、trace_id、快照节点/目标、命令与内容摘要（两级摘要错、未知 schema、节点或目标不一致、缺失快照引用均拒绝）；
+2. 复用配置导入、规则检查（含已登记链路的 R005）与变更单服务；
+3. 只对**适用的本地 violated Finding** 创建草稿，修复方案由本地 Finding 推导，外部建议命令存入导入记录供查看，不进入草稿；
+4. 正常、采集失败、证据不足、无合格 Finding 时保存证据与规则结果，草稿为空；
+5. 同 bundle 或同 trace 重复导入返回原记录（`duplicate=true`），不新增业务行；
+6. 始终不移动现有基线。
+
+设备详情可通过 `GET /api/devices/{id}/diagnosis-imports` 追溯提交人、提交时间、完整 bundle 哈希、trace_id、原始证据摘要、config_version_id、rule_run_id 与可选 change_request_id。外部诊断结论只写入理由，**不改变判定**；两个项目共享证据，但各自保留判定权。
 
 ## 解释层：模型只能解释，不能判定
 

@@ -320,6 +320,39 @@ class CollectionEvent(Base):
     __table_args__ = (CheckConstraint("status IN ('success','failed')", name="ck_collection_status"),)
 
 
+class DiagnosisImport(Base):
+    """One read-only diagnosis bundle import, traceable from the device detail.
+
+    The import never changes a baseline and never reuses the external commands
+    as draft content. The same bundle (bundle_sha256) or the same re-exported
+    trace (trace_id) imports once per device."""
+
+    __tablename__ = "diagnosis_imports"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    bundle_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    submitted_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    diagnosis_status: Mapped[str] = mapped_column(String(40), nullable=False)
+    diagnosis_conclusion: Mapped[str] = mapped_column(Text, nullable=False)
+    external_commands: Mapped[list] = mapped_column(JSON, nullable=False)
+    config_version_id: Mapped[str] = mapped_column(ForeignKey("config_versions.id", ondelete="CASCADE"), nullable=False)
+    rule_run_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    finding_id: Mapped[str | None] = mapped_column(ForeignKey("findings.id", ondelete="SET NULL"))
+    change_request_id: Mapped[str | None] = mapped_column(ForeignKey("change_requests.id", ondelete="SET NULL"))
+    no_draft_reason: Mapped[str | None] = mapped_column(Text)
+    evidence: Mapped[list] = mapped_column(JSON, nullable=False)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint("device_id", "bundle_sha256", name="uq_diagnosis_import_bundle"),
+        UniqueConstraint("device_id", "trace_id", name="uq_diagnosis_import_trace"),
+        CheckConstraint("status IN ('draft','no_draft')", name="ck_diagnosis_import_status"),
+    )
+
+
 class ChangeRun(Base):
     """Before/after snapshots around a human change window."""
 
