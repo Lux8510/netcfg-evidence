@@ -876,16 +876,33 @@ function DiagnosisImportCard({ rows }: { rows: DiagnosisImport[] }) {
 function DiagnosisImportDialog({ row, onClose }: { row: DiagnosisImport | null; onClose: () => void }) {
   const [versionText, setVersionText] = useState<string | null>(null);
   const [changeView, setChangeView] = useState<ChangeRequest | null>(null);
-  useEffect(() => { setVersionText(null); setChangeView(null); }, [row]);
+  const [findings, setFindings] = useState<Finding[] | null>(null);
+  const [findingError, setFindingError] = useState('');
+  const [findingEvidence, setFindingEvidence] = useState<{ versionId: string; line: number; title: string } | null>(null);
+  useEffect(() => {
+    setVersionText(null); setChangeView(null); setFindings(null); setFindingError('');
+  }, [row]);
+  const rowId = row?.id;
 
   async function openVersion() {
     if (!row) return;
     const version = await api<Version & { text: string }>(`/versions/${row.config_version_id}`);
-    setVersionText(version.text);
+    if (row.id === rowId) setVersionText(version.text);
   }
   async function openChange() {
     if (!row?.change_request_id) return;
-    setChangeView(await api<ChangeRequest>(`/change-requests/${row.change_request_id}`));
+    const change = await api<ChangeRequest>(`/change-requests/${row.change_request_id}`);
+    if (row.id === rowId) setChangeView(change);
+  }
+  async function openFindings() {
+    if (!row) return;
+    setFindingError('');
+    try {
+      const rows = await api<Finding[]>(`/devices/${row.device_id}/findings?run_id=${encodeURIComponent(row.rule_run_id)}`);
+      if (row.id === rowId) setFindings(rows);
+    } catch (error) {
+      if (row.id === rowId) setFindingError((error as Error).message);
+    }
   }
 
   return (
@@ -904,7 +921,12 @@ function DiagnosisImportDialog({ row, onClose }: { row: DiagnosisImport | null; 
                 <Button size="sm" variant="ghost" data-testid="open-version" onClick={openVersion}>查看原文</Button>
               </div>
             </Field>
-            <Field label="规则运行"><code className="mono block break-all">{row.rule_run_id}</code></Field>
+            <Field label="规则运行">
+              <div className="flex items-center gap-2">
+                <code className="mono block break-all">{row.rule_run_id}</code>
+                <Button size="sm" variant="ghost" data-testid="open-findings" onClick={openFindings}>查看结果</Button>
+              </div>
+            </Field>
             <Field label="变更单">
               <div className="flex items-center gap-2">
                 <code className="mono block break-all">{row.change_request_id ?? '—'}</code>
@@ -919,6 +941,36 @@ function DiagnosisImportDialog({ row, onClose }: { row: DiagnosisImport | null; 
             <Field label="配置版本原文">
               <pre className="mono max-h-64 overflow-auto rounded-lg bg-panel-2 p-3 text-[10px] leading-relaxed"
                    data-testid="diagnosis-version-text">{versionText}</pre>
+            </Field>
+          )}
+          {findingError && <p className="text-[11px] text-danger">{findingError}</p>}
+          {findings && (
+            <Field label={`规则结果（${findings.length} 条 Finding）`}>
+              <div className="max-h-64 space-y-2 overflow-auto pr-1" data-testid="diagnosis-findings">
+                {findings.length === 0 && <p className="text-muted">该次运行没有 Finding。</p>}
+                {findings.map((finding) => (
+                  <div key={finding.id} className="rounded-lg border border-line bg-panel-2 p-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <code className="mono text-[11px] text-fg">{finding.rule_id}</code>
+                      <Badge tone={finding.status === 'violated' ? 'danger' : 'warn'}>{finding.status}</Badge>
+                    </div>
+                    <p className="mt-1 text-[11px] leading-relaxed text-fg/90">{finding.message}</p>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {finding.evidence.filter((item) => item.line !== null).map((item, index) => (
+                        <Button key={`${finding.id}-${index}`} size="sm" variant="ghost"
+                                data-testid="diagnosis-finding-line"
+                                onClick={() => setFindingEvidence({
+                                  versionId: item.version_id ?? row.config_version_id,
+                                  line: item.line as number,
+                                  title: `${finding.rule_id} 证据`,
+                                })}>
+                          第 {item.line} 行
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </Field>
           )}
           {changeView && (
@@ -975,6 +1027,7 @@ function DiagnosisImportDialog({ row, onClose }: { row: DiagnosisImport | null; 
           </div>
         </div>
       )}
+      <EvidenceDialog target={findingEvidence} onClose={() => setFindingEvidence(null)} />
     </Dialog>
   );
 }

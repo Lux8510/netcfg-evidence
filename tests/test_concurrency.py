@@ -162,8 +162,13 @@ def _diagnosis_bundle(config: str, trace_id: str) -> dict:
     def canonical(payload):
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     digest = hashlib.sha256(config.encode("utf-8")).hexdigest()
+    observation = {"node": "r2", "command": ["vtysh", "-c", "show running-config"],
+                   "exit_code": 0, "stdout": config, "stderr": "",
+                   "stdout_truncated": False, "stderr_truncated": False,
+                   "stdout_bytes": len(config.encode()), "stderr_bytes": 0}
+    citation_digest = hashlib.sha256(canonical([observation])).hexdigest()
     bundle = {
-        "schema_version": 2, "source": "netsecops-agent", "trace_id": trace_id,
+        "schema_version": 3, "source": "netsecops-agent", "trace_id": trace_id,
         "created_at_utc": "2026-11-20T00:00:00+00:00",
         "device": {"name": "r2"},
         "diagnosis": {"status": "normal", "conclusion": "结论", "repair_suggestion": None,
@@ -174,8 +179,8 @@ def _diagnosis_bundle(config: str, trace_id: str) -> dict:
         "proposed_commands": [],
         "citations": [{"evidence_id": "E1", "tool": "query_interface_config",
                        "arguments": {"node": "r2", "interface": "eth1"}, "node": "r2",
-                       "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
-                       "content_sha256": digest, "excerpt": config[:80]}],
+                       "observations": [observation],
+                       "content_sha256": citation_digest}],
         "link": {"node": "r2", "interface": "eth1", "peer": "r1", "peer_interface": "eth2"},
         "lab_only": True,
     }

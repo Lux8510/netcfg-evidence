@@ -451,8 +451,13 @@ def _diagnosis_bundle(config: str, node: str = "r2") -> dict:
     def canonical(payload):
         return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
     digest = hashlib.sha256(config.encode("utf-8")).hexdigest()
+    observation = {"node": node, "command": ["vtysh", "-c", "show running-config"],
+                   "exit_code": 0, "stdout": config, "stderr": "",
+                   "stdout_truncated": False, "stderr_truncated": False,
+                   "stdout_bytes": len(config.encode()), "stderr_bytes": 0}
+    citation_digest = hashlib.sha256(canonical([observation])).hexdigest()
     bundle = {
-        "schema_version": 2, "source": "netsecops-agent", "trace_id": "e" * 64,
+        "schema_version": 3, "source": "netsecops-agent", "trace_id": "e" * 64,
         "created_at_utc": "2026-11-20T00:00:00+00:00",
         "device": {"name": node},
         "diagnosis": {"status": "normal", "conclusion": "两端 Area 一致，连通正常。",
@@ -463,13 +468,77 @@ def _diagnosis_bundle(config: str, node: str = "r2") -> dict:
         "proposed_commands": [],
         "citations": [{"evidence_id": "E1", "tool": "query_interface_config",
                        "arguments": {"node": node, "interface": "eth1"}, "node": node,
-                       "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
-                       "content_sha256": digest, "excerpt": config[:120]}],
+                       "observations": [observation],
+                       "content_sha256": citation_digest}],
         "link": {"node": node, "interface": "eth1", "peer": "r1", "peer_interface": "eth2"},
         "lab_only": True,
     }
     bundle["bundle_sha256"] = hashlib.sha256(canonical(bundle)).hexdigest()
     return bundle
+
+
+def _area_diagnosis_bundle(local: str, peer: str) -> dict:
+    import hashlib
+    import json
+
+    def canonical(payload):
+        return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+    def obs(node, text):
+        return {"node": node, "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
+                "stdout": text, "stderr": "", "stdout_truncated": False, "stderr_truncated": False,
+                "stdout_bytes": len(text.encode()), "stderr_bytes": 0}
+
+    def citation(eid, node, text):
+        observations = [obs(node, text)]
+        return {"evidence_id": eid, "tool": "query_interface_config",
+                "arguments": {"node": node, "interface": "eth1"}, "node": node,
+                "observations": observations,
+                "content_sha256": hashlib.sha256(canonical(observations)).hexdigest()}
+
+    local_sha, peer_sha = hashlib.sha256(local.encode()).hexdigest(), hashlib.sha256(peer.encode()).hexdigest()
+    bundle = {
+        "schema_version": 3, "source": "netsecops-agent", "trace_id": "f" * 64,
+        "created_at_utc": "2026-11-20T00:00:00+00:00",
+        "device": {"name": "r2"},
+        "diagnosis": {"status": "ospf_area_mismatch", "conclusion": "两端 Area 不一致。",
+                       "repair_suggestion": None, "evidence_ids": ["E1"]},
+        "config_snapshot": {"node": "r2", "target": "r2", "evidence_id": "E1",
+                            "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
+                            "text": local, "sha256": local_sha},
+        "peer_snapshot": {"node": "r1", "interface": "eth2", "evidence_id": "PEER",
+                          "command": ["vtysh", "-c", "show running-config"], "exit_code": 0,
+                          "text": peer, "sha256": peer_sha},
+        "proposed_commands": ["no ip ospf area 0.0.0.1"],
+        "citations": [citation("E1", "r2", local), citation("PEER", "r1", peer)],
+        "link": {"node": "r2", "interface": "eth1", "peer": "r1", "peer_interface": "eth2"},
+        "lab_only": True,
+    }
+    bundle["bundle_sha256"] = hashlib.sha256(canonical(bundle)).hexdigest()
+    return bundle
+
+
+def test_diagnosis_import_opens_local_findings_and_evidence(page, server):
+    r1 = api_post(server, "/api/devices", {"name": "r1"})["id"]
+    r2 = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    api_post(server, f"/api/devices/{r1}/configs", {"text": BASELINE, "source_name": "r1"})
+    local = SECOND.replace("network 10.12.0.0/30 area 0.0.0.0",
+                           "network 10.12.0.0/30 area 0.0.0.1")
+    api_post(server, f"/api/devices/{r2}/configs", {"text": local, "source_name": "r2"})
+    api_post(server, "/api/links", {"device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
+    api_post(server, f"/api/devices/{r2}/diagnosis-imports",
+             {"bundle": _area_diagnosis_bundle(local, BASELINE)})
+
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", r2)
+    page.wait_for_selector("[data-testid=diagnosis-import]")
+    page.locator("[data-testid=diagnosis-import]").first.click()
+    page.click("[data-testid=open-findings]")
+    page.wait_for_selector("[data-testid=diagnosis-findings]")
+    assert "R005" in page.locator("[data-testid=diagnosis-findings]").inner_text()
+    page.locator("[data-testid=diagnosis-finding-line]").first.click()
+    page.wait_for_function("() => document.querySelector('[data-testid=evidence-body]')"
+                           "?.textContent?.includes('area')")
 
 
 def test_diagnosis_import_is_visible_from_device_detail(page, server):

@@ -41,6 +41,10 @@ def canonical(payload: dict[str, Any]) -> bytes:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
+def observation_digest(observations: list[dict[str, Any]]) -> str:
+    return hashlib.sha256(canonical(observations)).hexdigest()
+
+
 def _require(value: Any, condition: bool, message: str) -> None:
     if not condition:
         raise ImportError_(message)
@@ -49,7 +53,7 @@ def _require(value: Any, condition: bool, message: str) -> None:
 def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
     _require(bundle, isinstance(bundle, dict), "bundle must be an object")
     _require(bundle, bundle.get("source") == "netsecops-agent", "bundle source is not netsecops-agent")
-    _require(bundle, bundle.get("schema_version") == 2, "unsupported bundle schema version")
+    _require(bundle, bundle.get("schema_version") == 3, "unsupported bundle schema version")
     _require(bundle, bundle.get("lab_only") is True, "bundle is not marked lab-only")
 
     body = {key: value for key, value in bundle.items() if key != "bundle_sha256"}
@@ -119,10 +123,17 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
         _require(bundle, isinstance(item.get("tool"), str) and item["tool"], "citation has no tool")
         _require(bundle, isinstance(item.get("node"), str) or item.get("node") is None,
                  "citation node is invalid")
-        _require(bundle, isinstance(item.get("command"), list), "citation command is invalid")
-        _require(bundle, isinstance(item.get("exit_code"), int), "citation exit_code is invalid")
-        _require(bundle, isinstance(item.get("content_sha256"), str) and len(item["content_sha256"]) == 64,
-                 "citation has no content digest")
+        observations = item.get("observations")
+        _require(bundle, isinstance(observations, list) and observations, "citation has no observations")
+        for observation in observations:
+            _require(bundle, isinstance(observation, dict), "citation observation must be an object")
+            _require(bundle, isinstance(observation.get("command"), list), "observation command is invalid")
+            _require(bundle, isinstance(observation.get("exit_code"), int), "observation exit_code is invalid")
+            _require(bundle, isinstance(observation.get("stdout"), str), "observation stdout is invalid")
+            _require(bundle, isinstance(observation.get("stderr"), str), "observation stderr is invalid")
+            _require(bundle, isinstance(observation.get("stdout_truncated"), bool), "observation truncation flag missing")
+        _require(bundle, observation_digest(observations) == item.get("content_sha256"),
+                 "citation digest does not match its observations")
         by_id[item["evidence_id"]] = item
 
     snapshot_citation = by_id.get(snapshot["evidence_id"])
@@ -131,14 +142,33 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
              "snapshot citation is not a running-config observation")
     _require(bundle, snapshot_citation["node"] == snapshot["node"],
              "snapshot citation belongs to another node")
-    _require(bundle, any("show running-config" in str(part) for part in snapshot_citation["command"]),
-             "snapshot citation command is not a running-config collection")
-    _require(bundle, snapshot_citation["exit_code"] == 0,
-             "snapshot citation command did not succeed")
-    _require(bundle, snapshot_citation["content_sha256"] == snapshot["sha256"],
-             "snapshot citation content does not match the snapshot")
-    _require(bundle, snapshot_citation["command"] == snapshot["command"],
+    matching = [obs for obs in snapshot_citation["observations"]
+                if obs.get("exit_code") == 0
+                and any("show running-config" in str(part) for part in obs.get("command") or [])
+                and obs.get("stdout") == snapshot["text"]]
+    _require(bundle, len(matching) == 1, "snapshot citation has no matching running-config observation")
+    matched = matching[0]
+    _require(bundle, matched["command"] == snapshot["command"],
              "snapshot command does not match its citation command")
+    _require(bundle, matched["exit_code"] == snapshot["exit_code"],
+             "snapshot exit code does not match its citation")
+
+    peer = bundle.get("peer_snapshot")
+    if peer is not None:
+        _require(bundle, isinstance(peer, dict), "peer_snapshot must be an object")
+        _require(bundle, peer.get("node") == link["peer"], "peer snapshot node does not match the link")
+        peer_citation = by_id.get(peer.get("evidence_id"))
+        _require(bundle, peer_citation is not None, "peer snapshot evidence is missing from citations")
+        _require(bundle, peer_citation["tool"] == "query_interface_config",
+                 "peer snapshot citation is not a running-config observation")
+        _require(bundle, peer_citation["node"] == peer["node"], "peer snapshot citation belongs to another node")
+        _require(bundle, hashlib.sha256((peer.get("text") or "").encode("utf-8")).hexdigest() == peer.get("sha256"),
+                 "peer snapshot hash does not match")
+        matching_peer = [obs for obs in peer_citation["observations"]
+                         if obs.get("exit_code") == 0
+                         and any("show running-config" in str(part) for part in obs.get("command") or [])
+                         and obs.get("stdout") == peer.get("text")]
+        _require(bundle, len(matching_peer) == 1, "peer snapshot has no matching running-config observation")
     return bundle
 
 
@@ -150,7 +180,8 @@ def _iface_from_path(path: str | None) -> str | None:
 
 
 def _finding_matches_link(db: Session, device_id: str, finding: Finding,
-                          link: dict[str, Any], local_version_id: str) -> bool:
+                          link: dict[str, Any], local_version_id: str,
+                          expected_peer_version_id: str | None) -> bool:
     """A per-link R005 finding must be about the bundle's link, the peer device
     and both config versions; otherwise the import keeps evidence without a draft."""
     evidence = finding.evidence or []
@@ -173,6 +204,8 @@ def _finding_matches_link(db: Session, device_id: str, finding: Finding,
     # The cited peer version must belong to that peer device.
     peer_version = db.get(ConfigVersion, peer_version_id)
     if peer_version is None or peer_version.device_id != peer_device.id:
+        return False
+    if expected_peer_version_id is None or peer_version.id != expected_peer_version_id:
         return False
     # A registered link must actually connect the two devices on these interfaces.
     link_row = db.scalar(select(DeviceLink).where(
@@ -229,7 +262,17 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
 
     version, _created = import_config(db, device_id, snapshot["text"],
                                       f"netsecops-{bundle['bundle_sha256'][:8]}")
-    run = run_rules_check(db, device_id, version.id, include_cross=True)
+    peer_id = peer_version_id = None
+    peer_snapshot = bundle.get("peer_snapshot")
+    if diagnosis["status"] == "ospf_area_mismatch" and isinstance(peer_snapshot, dict):
+        peer = db.scalar(select(Device).where(Device.name == bundle["link"]["peer"]))
+        if peer is not None:
+            peer_version, _ = import_config(db, peer.id, peer_snapshot["text"],
+                                            f"netsecops-peer-{bundle['bundle_sha256'][:8]}")
+            peer_id, peer_version_id = peer.id, peer_version.id
+    peer_versions = {peer_id: peer_version_id} if peer_id and peer_version_id else None
+    run = run_rules_check(db, device_id, version.id, include_cross=True,
+                          peer_versions=peer_versions)
     if run["config_version_id"] != version.id:
         raise ServiceError("RULE_VERSION_MISMATCH", "规则运行未绑定导入的版本", 500)
     if any(item.get("config_version_id") != version.id for item in run["findings"]):
@@ -256,7 +299,7 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
             candidate = db.get(Finding, item["id"])
             # Bound the draft to the link the bundle refers to (R005 is per-link).
             if diagnosis["status"] == "ospf_area_mismatch" and not _finding_matches_link(
-                    db, device_id, candidate, link, version.id):
+                    db, device_id, candidate, link, version.id, peer_version_id):
                 continue
             eligible = candidate
             break
@@ -323,23 +366,44 @@ def compose_rationale(bundle: dict[str, Any], rule_id: str) -> str:
 
 
 def _evidence_payload(bundle: dict[str, Any]) -> list[dict[str, Any]]:
+    """Store the verified observations (not a caller-supplied excerpt) so the
+    device detail can show text that matches its digest."""
     snapshot = bundle["config_snapshot"]
     citations = bundle.get("citations") or []
-    payload = [{
-        "evidence_id": item.get("evidence_id"),
-        "tool": item.get("tool"),
-        "node": item.get("node"),
-        "command": item.get("command"),
-        "exit_code": item.get("exit_code"),
-        "content_sha256": item.get("content_sha256"),
-        "excerpt": item.get("excerpt"),
-    } for item in citations]
+    payload = []
+    for item in citations:
+        observations = item.get("observations") or []
+        first = observations[0] if observations else {}
+        excerpt = str(first.get("stdout") or "")
+        payload.append({
+            "evidence_id": item.get("evidence_id"),
+            "tool": item.get("tool"),
+            "node": item.get("node"),
+            "command": first.get("command"),
+            "exit_code": first.get("exit_code"),
+            "content_sha256": item.get("content_sha256"),
+            "excerpt": excerpt[:600],
+            "observations": observations,
+        })
+    peer = bundle.get("peer_snapshot")
+    if isinstance(peer, dict):
+        payload.append({
+            "evidence_id": peer.get("evidence_id"),
+            "tool": "query_interface_config",
+            "node": peer.get("node"),
+            "kind": "peer_snapshot",
+            "content_sha256": peer.get("sha256"),
+            "observations": [{"command": peer.get("command"), "exit_code": peer.get("exit_code"),
+                              "stdout": peer.get("text"), "stderr": ""}],
+        })
     payload.append({
         "evidence_id": snapshot["evidence_id"],
         "tool": "query_interface_config",
         "node": snapshot["node"],
         "kind": "config_snapshot",
         "content_sha256": snapshot["sha256"],
+        "observations": [{"command": snapshot["command"], "exit_code": snapshot["exit_code"],
+                          "stdout": snapshot["text"], "stderr": ""}],
     })
     return payload
 

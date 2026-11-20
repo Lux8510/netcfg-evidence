@@ -254,7 +254,8 @@ def drift_payload(report: DriftReport) -> dict[str, Any]:
 
 
 def run_rules_check(db: Session, device_id: str, version_id: str | None = None,
-                    include_cross: bool = False) -> dict[str, Any]:
+                    include_cross: bool = False,
+                    peer_versions: dict[str, str] | None = None) -> dict[str, Any]:
     """Run the deterministic rule set against one version and persist the findings."""
     from . import cross_rules
     from . import rules as rules_module
@@ -283,9 +284,15 @@ def run_rules_check(db: Session, device_id: str, version_id: str | None = None,
                 else:
                     local_iface, peer_id, peer_iface = link.iface_b, link.device_a_id, link.iface_a
                 peer_device = db.get(Device, peer_id)
-                peer_version = db.scalar(
-                    select(ConfigVersion).where(ConfigVersion.device_id == peer_id)
-                    .order_by(ConfigVersion.created_at.desc(), ConfigVersion.id.desc()).limit(1))
+                pinned = (peer_versions or {}).get(peer_id)
+                if pinned is not None:
+                    peer_version = db.get(ConfigVersion, pinned)
+                    if peer_version is None or peer_version.device_id != peer_id:
+                        raise ServiceError("PEER_VERSION_MISMATCH", "指定的对端版本不属于该对端设备", 422)
+                else:
+                    peer_version = db.scalar(
+                        select(ConfigVersion).where(ConfigVersion.device_id == peer_id)
+                        .order_by(ConfigVersion.created_at.desc(), ConfigVersion.id.desc()).limit(1))
                 if peer_version is None:
                     findings.append(rules_module.Finding(
                         cross_rules.LINK_MISMATCH, "undetermined",
