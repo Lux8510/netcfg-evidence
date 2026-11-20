@@ -301,3 +301,73 @@ def test_r005_draft_is_bound_to_the_bundle_link(app_client, r2_text, r4_text):
     result = response.json()["data"]
     assert result["status"] == "no_draft"
     assert result["change_request_id"] is None
+
+
+def test_failure_after_draft_rolls_back_all_records(app_client, monkeypatch, r1_text, r2_text):
+    """SQLite: the first config write must not survive a later failure."""
+    import domain.netcfg.diagnosis_import as di
+    from domain.netcfg.service import ServiceError
+
+    r1 = create_device(app_client, "r1")
+    r2 = create_device(app_client, "r2")
+    import_config(app_client, r1, r1_text)  # peer has its config
+    # r2 has no config of its own yet.
+    app_client.post("/api/links", json={
+        "device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
+    mismatched = r2_text.replace("network 10.12.0.0/30 area 0.0.0.0",
+                                 "network 10.12.0.0/30 area 0.0.0.1")
+    bundle = make_bundle(mismatched, node="r2", status="ospf_area_mismatch",
+                         trace_id="21" + "0" * 62)
+
+    original_init = di.DiagnosisImport.__init__
+    def boom(self, *args, **kwargs):
+        raise ServiceError("INJECTED", "注入失败", 422)
+    monkeypatch.setattr(di.DiagnosisImport, "__init__", boom)
+
+    response = app_client.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle})
+    assert response.status_code == 422
+    assert app_client.get(f"/api/devices/{r2}/configs").json()["data"] == []
+    assert app_client.get(f"/api/devices/{r2}/rules/runs").json()["data"] == []
+    assert app_client.get(f"/api/devices/{r2}/change-requests").json()["data"] == []
+    assert app_client.get(f"/api/devices/{r2}/diagnosis-imports").json()["data"] == []
+
+    # Retry without the failure completes exactly once.
+    monkeypatch.setattr(di.DiagnosisImport, "__init__", original_init)
+    retry = app_client.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle})
+    assert retry.status_code == 201, retry.text
+    assert retry.json()["data"]["status"] == "draft"
+    assert len(app_client.get(f"/api/devices/{r2}/configs").json()["data"]) == 1
+    assert len(app_client.get(f"/api/devices/{r2}/rules/runs").json()["data"]) == 1
+    assert len(app_client.get(f"/api/devices/{r2}/change-requests").json()["data"]) == 1
+    assert len(app_client.get(f"/api/devices/{r2}/diagnosis-imports").json()["data"]) == 1
+
+
+def test_r005_draft_requires_matching_peer_identity(app_client, r1_text, r2_text):
+    """Same local interface but a different/unknown peer must not yield a draft."""
+    r1 = create_device(app_client, "r1")
+    r2 = create_device(app_client, "r2")
+    import_config(app_client, r1, r1_text)
+    mismatched = r2_text.replace("network 10.12.0.0/30 area 0.0.0.0",
+                                 "network 10.12.0.0/30 area 0.0.0.1")
+    import_config(app_client, r2, mismatched)
+    app_client.post("/api/links", json={
+        "device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
+    bundle = make_bundle(mismatched, node="r2", status="ospf_area_mismatch",
+                         trace_id="22" + "0" * 62,
+                         link={"node": "r2", "interface": "eth1", "peer": "different",
+                               "peer_interface": "eth9"})
+    response = app_client.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle})
+    assert response.status_code == 201, response.text
+    result = response.json()["data"]
+    assert result["status"] == "no_draft"
+    assert result["change_request_id"] is None
+
+
+def test_snapshot_command_must_equal_citation_command(app_client, r1_text):
+    device = create_device(app_client, "r2")
+    bundle = make_bundle(r1_text, node="r2", status="normal", trace_id="23" + "0" * 62)
+    bundle["config_snapshot"]["command"] = ["vtysh", "-c", "show running-config", "extra"]
+    body = {k: v for k, v in bundle.items() if k != "bundle_sha256"}
+    bundle["bundle_sha256"] = hashlib.sha256(canonical(body)).hexdigest()
+    with pytest.raises(ImportError_):
+        verify_bundle(bundle)

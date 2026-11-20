@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from engine.models import DiagnosisImport, Finding
+from engine.models import ConfigVersion, Device, DeviceLink, DiagnosisImport, Finding
 
 from . import change_requests
 from .service import ServiceError, _device, import_config, run_rules_check
@@ -137,25 +137,51 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
              "snapshot citation command did not succeed")
     _require(bundle, snapshot_citation["content_sha256"] == snapshot["sha256"],
              "snapshot citation content does not match the snapshot")
+    _require(bundle, snapshot_citation["command"] == snapshot["command"],
+             "snapshot command does not match its citation command")
     return bundle
 
 
-def _finding_matches_link(finding: Finding, link: dict[str, Any], local_version_id: str) -> bool:
-    """A per-link R005 finding must be about the bundle's link and both versions."""
+def _iface_from_path(path: str | None) -> str | None:
+    parts = (path or "").split(".")
+    if len(parts) < 2 or parts[0] != "interface" or not parts[1]:
+        return None
+    return parts[1]
+
+
+def _finding_matches_link(db: Session, device_id: str, finding: Finding,
+                          link: dict[str, Any], local_version_id: str) -> bool:
+    """A per-link R005 finding must be about the bundle's link, the peer device
+    and both config versions; otherwise the import keeps evidence without a draft."""
     evidence = finding.evidence or []
     if len(evidence) < 2:
         return False
     local, peer = evidence[0], evidence[1]
-    parts = (local.get("path") or "").split(".")
-    if len(parts) < 2 or parts[0] != "interface" or not parts[1]:
-        return False
-    if parts[1] != link.get("interface"):
+    local_iface = _iface_from_path(local.get("path"))
+    peer_iface = _iface_from_path(peer.get("path"))
+    if local_iface != link.get("interface") or peer_iface != link.get("peer_interface"):
         return False
     if local.get("version_id") != local_version_id:
         return False
-    if not isinstance(peer.get("version_id"), str) or not peer["version_id"]:
+    peer_version_id = peer.get("version_id")
+    if not isinstance(peer_version_id, str) or not peer_version_id:
         return False
-    return True
+    # The peer node must be a registered device on the same link.
+    peer_device = db.scalar(select(Device).where(Device.name == link.get("peer")))
+    if peer_device is None or peer_device.id == device_id:
+        return False
+    # The cited peer version must belong to that peer device.
+    peer_version = db.get(ConfigVersion, peer_version_id)
+    if peer_version is None or peer_version.device_id != peer_device.id:
+        return False
+    # A registered link must actually connect the two devices on these interfaces.
+    link_row = db.scalar(select(DeviceLink).where(
+        ((DeviceLink.device_a_id == device_id) & (DeviceLink.iface_a == local_iface)
+         & (DeviceLink.device_b_id == peer_device.id) & (DeviceLink.iface_b == peer_iface))
+        | ((DeviceLink.device_b_id == device_id) & (DeviceLink.iface_b == local_iface)
+           & (DeviceLink.device_a_id == peer_device.id) & (DeviceLink.iface_a == peer_iface))
+    ))
+    return link_row is not None
 
 
 def _derive_remediation(finding: Finding) -> list[str]:
@@ -229,7 +255,8 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
                 continue
             candidate = db.get(Finding, item["id"])
             # Bound the draft to the link the bundle refers to (R005 is per-link).
-            if diagnosis["status"] == "ospf_area_mismatch" and not _finding_matches_link(candidate, link, version.id):
+            if diagnosis["status"] == "ospf_area_mismatch" and not _finding_matches_link(
+                    db, device_id, candidate, link, version.id):
                 continue
             eligible = candidate
             break

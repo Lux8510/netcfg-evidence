@@ -24,6 +24,21 @@ class ServiceError(Exception):
         self.status = status
 
 
+def _nested(db: Session):
+    """Start a nested savepoint with a real outer transaction on SQLite.
+
+    SQLite's default deferred transaction does not emit BEGIN, so a savepoint
+    becomes the outermost transaction and RELEASE would commit its writes before
+    a later rollback can undo them. Emit a real BEGIN first so the savepoint
+    nests inside a transaction that a rollback can actually revert.
+    """
+    connection = db.connection()
+    dbapi = getattr(connection, "connection", None)
+    if connection.dialect.name == "sqlite" and dbapi is not None and not dbapi.in_transaction:
+        connection.exec_driver_sql("BEGIN")
+    return db.begin_nested()
+
+
 def _device(db: Session, device_id: str) -> Device:
     device = db.get(Device, device_id)
     if device is None:
@@ -87,7 +102,7 @@ def _persist_version(db: Session, device: Device, parsed: ParsedConfig) -> tuple
         line_count=parsed.line_count,
     )
     try:
-        with db.begin_nested():
+        with _nested(db):
             db.add(version)
             db.flush()
     except IntegrityError:
@@ -153,7 +168,7 @@ def _activate_baseline(db: Session, device_id: str, version: ConfigVersion) -> B
     """Insert the active baseline, resolving the partial-unique race without a 500."""
     baseline = Baseline(device_id=device_id, config_version_id=version.id, active=True)
     try:
-        with db.begin_nested():
+        with _nested(db):
             db.add(baseline)
             db.flush()
     except IntegrityError:

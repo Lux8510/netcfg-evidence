@@ -297,7 +297,7 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
             <div className="space-y-4">
               <TopologyCard links={deviceLinks} currentId={deviceId} onSelect={setDeviceId} />
               <AuditCard rows={audit} />
-              <DiagnosisImportCard rows={diagnosisImports} />
+              <DiagnosisImportCard key={deviceId} rows={diagnosisImports} />
             </div>
           </StaggerItem>
 
@@ -874,6 +874,20 @@ function DiagnosisImportCard({ rows }: { rows: DiagnosisImport[] }) {
 }
 
 function DiagnosisImportDialog({ row, onClose }: { row: DiagnosisImport | null; onClose: () => void }) {
+  const [versionText, setVersionText] = useState<string | null>(null);
+  const [changeView, setChangeView] = useState<ChangeRequest | null>(null);
+  useEffect(() => { setVersionText(null); setChangeView(null); }, [row]);
+
+  async function openVersion() {
+    if (!row) return;
+    const version = await api<Version & { text: string }>(`/versions/${row.config_version_id}`);
+    setVersionText(version.text);
+  }
+  async function openChange() {
+    if (!row?.change_request_id) return;
+    setChangeView(await api<ChangeRequest>(`/change-requests/${row.change_request_id}`));
+  }
+
   return (
     <Dialog open={!!row} onClose={onClose} title="诊断导入详情" wide>
       {row && (
@@ -884,11 +898,43 @@ function DiagnosisImportDialog({ row, onClose }: { row: DiagnosisImport | null; 
           </div>
           <Field label="结论"><p className="leading-relaxed text-fg/90">{row.diagnosis_conclusion}</p></Field>
           <div className="grid gap-2 sm:grid-cols-2">
-            <Field label="配置版本"><code className="mono block break-all">{row.config_version_id}</code></Field>
+            <Field label="配置版本">
+              <div className="flex items-center gap-2">
+                <code className="mono block break-all">{row.config_version_id}</code>
+                <Button size="sm" variant="ghost" data-testid="open-version" onClick={openVersion}>查看原文</Button>
+              </div>
+            </Field>
             <Field label="规则运行"><code className="mono block break-all">{row.rule_run_id}</code></Field>
-            <Field label="变更单"><code className="mono block break-all">{row.change_request_id ?? '—'}</code></Field>
+            <Field label="变更单">
+              <div className="flex items-center gap-2">
+                <code className="mono block break-all">{row.change_request_id ?? '—'}</code>
+                {row.change_request_id && (
+                  <Button size="sm" variant="ghost" data-testid="open-change" onClick={openChange}>查看</Button>
+                )}
+              </div>
+            </Field>
             <Field label="Finding"><code className="mono block break-all">{row.finding_id ?? '—'}</code></Field>
           </div>
+          {versionText !== null && (
+            <Field label="配置版本原文">
+              <pre className="mono max-h-64 overflow-auto rounded-lg bg-panel-2 p-3 text-[10px] leading-relaxed"
+                   data-testid="diagnosis-version-text">{versionText}</pre>
+            </Field>
+          )}
+          {changeView && (
+            <Field label="关联变更单">
+              <div className="rounded-lg border border-line bg-panel-2 p-3" data-testid="diagnosis-change-view">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="font-medium text-fg">{changeView.title}</p>
+                  <Badge tone={statusTone[changeView.status] ?? 'neutral'}>{changeView.status}</Badge>
+                </div>
+                <p className="mt-1 text-[11px] text-muted">{changeView.rationale}</p>
+                <pre className="mono mt-2 overflow-auto rounded bg-panel-2 p-2 text-[10px]">
+                  {changeView.proposed_commands.join('\n')}
+                </pre>
+              </div>
+            </Field>
+          )}
           <div className="grid gap-2 sm:grid-cols-2">
             <Field label="bundle_sha256"><code className="mono block break-all">{row.bundle_sha256}</code></Field>
             <Field label="trace_id"><code className="mono block break-all">{row.trace_id}</code></Field>
@@ -919,7 +965,7 @@ function DiagnosisImportDialog({ row, onClose }: { row: DiagnosisImport | null; 
                     {item.content_sha256}
                   </code>
                   {item.excerpt && (
-                    <pre className="mono mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-all text-[10px] text-fg/80">
+                    <pre className="mono mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-all text-[10px] text-fg/80">
                       {item.excerpt}
                     </pre>
                   )}

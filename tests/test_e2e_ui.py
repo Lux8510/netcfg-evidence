@@ -487,3 +487,8 @@ def test_diagnosis_import_is_visible_from_device_detail(page, server):
     page.wait_for_selector("[data-testid=diagnosis-evidence]")
     detail = page.locator("[data-testid=diagnosis-evidence]").inner_text()
     assert "E1" in detail and "query_interface_config" in detail
+
+    page.click("[data-testid=open-version]")
+    page.wait_for_selector("[data-testid=diagnosis-version-text]")
+    version_text = page.locator("[data-testid=diagnosis-version-text]").inner_text()
+    assert "hostname r1" in version_text
