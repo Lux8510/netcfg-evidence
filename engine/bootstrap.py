@@ -10,8 +10,9 @@ from __future__ import annotations
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
-from .guards import (POSTGRES_FUNCTION, POSTGRES_TRIGGERS, POSTGRES_TRUNCATE_FUNCTION,
-                     SQLITE_BASELINE_INDEX, SQLITE_TRIGGERS, BASELINE_INDEX)
+from .guards import (BASELINE_INDEX, POSTGRES_CHANGE_RUN_FUNCTION,
+                     POSTGRES_FINDINGS_VALID_FUNCTION, POSTGRES_FUNCTION, POSTGRES_TRIGGERS,
+                     POSTGRES_TRUNCATE_FUNCTION, SQLITE_BASELINE_INDEX, SQLITE_TRIGGERS)
 
 
 def ensure_append_only(engine) -> list[str]:
@@ -28,6 +29,8 @@ def ensure_append_only(engine) -> list[str]:
         elif dialect == "postgresql":
             connection.execute(text(POSTGRES_FUNCTION))
             connection.execute(text(POSTGRES_TRUNCATE_FUNCTION))
+            connection.execute(text(POSTGRES_FINDINGS_VALID_FUNCTION))
+            connection.execute(text(POSTGRES_CHANGE_RUN_FUNCTION))
             for name, statement in POSTGRES_TRIGGERS.items():
                 connection.execute(text(statement))
                 created.append(name)

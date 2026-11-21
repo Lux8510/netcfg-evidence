@@ -100,6 +100,36 @@ BEGIN RAISE EXCEPTION '% is append-only', TG_TABLE_NAME; END;
 $$ LANGUAGE plpgsql
 """
 
+POSTGRES_FINDINGS_VALID_FUNCTION = """
+CREATE OR REPLACE FUNCTION validate_change_request_findings() RETURNS trigger AS $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM json_array_elements_text(NEW.finding_ids) AS fid
+             LEFT JOIN findings f ON f.id = fid
+             WHERE f.id IS NULL OR f.device_id <> NEW.device_id OR f.status <> 'violated') THEN
+    RAISE EXCEPTION 'change request requires violated findings of the same device';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+
+POSTGRES_CHANGE_RUN_FUNCTION = """
+CREATE OR REPLACE FUNCTION validate_change_run_versions() RETURNS trigger AS $$
+BEGIN
+  IF (SELECT device_id FROM config_versions WHERE id = NEW.before_version_id)
+     IS DISTINCT FROM NEW.device_id THEN
+    RAISE EXCEPTION 'change run versions must belong to the device';
+  END IF;
+  IF NEW.after_version_id IS NOT NULL AND
+     (SELECT device_id FROM config_versions WHERE id = NEW.after_version_id)
+     IS DISTINCT FROM NEW.device_id THEN
+    RAISE EXCEPTION 'change run versions must belong to the device';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql
+"""
+
 POSTGRES_TRIGGERS: dict[str, str] = {
     "audit_events_no_update": (
         "DROP TRIGGER IF EXISTS audit_events_no_update ON audit_events; "
@@ -162,10 +192,7 @@ POSTGRES_TRIGGERS: dict[str, str] = {
     "change_requests_findings_valid": (
         "DROP TRIGGER IF EXISTS change_requests_findings_valid ON change_requests; "
         "CREATE TRIGGER change_requests_findings_valid BEFORE INSERT ON change_requests "
-        "FOR EACH ROW WHEN EXISTS (SELECT 1 FROM json_array_elements_text(NEW.finding_ids) AS fid "
-        "LEFT JOIN findings f ON f.id = fid "
-        "WHERE f.id IS NULL OR f.device_id <> NEW.device_id OR f.status <> 'violated') "
-        "EXECUTE FUNCTION prevent_mutation()"
+        "FOR EACH ROW EXECUTE FUNCTION validate_change_request_findings()"
     ),
     "change_runs_before_immutable": (
         "CREATE TRIGGER IF NOT EXISTS change_runs_before_immutable BEFORE UPDATE ON change_runs "
@@ -202,15 +229,12 @@ POSTGRES_TRIGGERS: dict[str, str] = {
     "change_runs_version_device": (
         "DROP TRIGGER IF EXISTS change_runs_version_device ON change_runs; "
         "CREATE TRIGGER change_runs_version_device BEFORE INSERT ON change_runs "
-        "FOR EACH ROW WHEN ((SELECT device_id FROM config_versions WHERE id = NEW.before_version_id) IS DISTINCT FROM NEW.device_id) "
-        "EXECUTE FUNCTION prevent_mutation()"
+        "FOR EACH ROW EXECUTE FUNCTION validate_change_run_versions()"
     ),
     "change_runs_after_version_device": (
         "DROP TRIGGER IF EXISTS change_runs_after_version_device ON change_runs; "
         "CREATE TRIGGER change_runs_after_version_device BEFORE UPDATE ON change_runs "
-        "FOR EACH ROW WHEN (NEW.after_version_id IS NOT NULL AND "
-        "(SELECT device_id FROM config_versions WHERE id = NEW.after_version_id) IS DISTINCT FROM NEW.device_id) "
-        "EXECUTE FUNCTION prevent_mutation()"
+        "FOR EACH ROW EXECUTE FUNCTION validate_change_run_versions()"
     ),
     "findings_evidence_shape": (
         "DROP TRIGGER IF EXISTS findings_evidence_shape ON findings; "

@@ -265,6 +265,8 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
     @app.post("/api/devices", status_code=201)
     def create_device(body: DeviceBody, db: Session = Depends(get_db)):
         device = service.create_device(db, body.name)
+        # Commit before the response so an immediate follow-up request cannot miss the row.
+        db.commit()
         return ok({"id": device.id, "name": device.name, "created_at": device.created_at.isoformat()})
 
     @app.get("/api/devices")
