@@ -21,7 +21,6 @@ from sqlalchemy.orm import Session
 from engine.models import ConfigVersion, Device, DeviceLink, DiagnosisImport, Finding
 
 from . import change_requests
-from .parser import parse_frr_config
 from .service import ServiceError, _device, import_config, run_rules_check
 
 
@@ -298,20 +297,10 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
     if diagnosis["status"] == "ospf_area_mismatch" and isinstance(peer_snapshot, dict):
         peer = db.scalar(select(Device).where(Device.name == bundle["link"]["peer"]))
         if peer is not None and _registered_link(db, device_id, link, peer.id):
-            # Historical evidence only: do not promote it to the peer's current version.
-            # If the peer already has this exact content as its current version, reuse it.
-            parsed_peer = parse_frr_config(peer_snapshot["text"],
-                                           f"netsecops-peer-{bundle['bundle_sha256'][:8]}")
-            current = db.scalar(select(ConfigVersion).where(
-                ConfigVersion.device_id == peer.id,
-                ConfigVersion.raw_sha256 == parsed_peer.raw_sha256,
-                ConfigVersion.historical.is_(False)))
-            if current is not None:
-                peer_version = current
-            else:
-                peer_version, _ = import_config(db, peer.id, peer_snapshot["text"],
-                                                f"netsecops-peer-{bundle['bundle_sha256'][:8]}",
-                                                historical=True)
+            peer_version, _ = import_config(
+                db, peer.id, peer_snapshot["text"],
+                f"netsecops-peer-{bundle['bundle_sha256'][:8]}", historical=True,
+            )
             peer_id, peer_version_id = peer.id, peer_version.id
     peer_versions = {peer_id: peer_version_id} if peer_id and peer_version_id else None
     run = run_rules_check(db, device_id, version.id, include_cross=True,

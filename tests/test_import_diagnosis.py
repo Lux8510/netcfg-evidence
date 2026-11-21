@@ -252,6 +252,42 @@ def test_idempotent_reimport_and_trace_dedup(app_client, r1_text, r2_text):
     assert third["id"] == first["id"]
 
 
+def test_unusable_peer_snapshot_returns_422_and_allows_retry(api_app, r1_text, r2_text):
+    from fastapi.testclient import TestClient
+    from conftest import PASSWORDS
+
+    app, _, _ = api_app
+    with TestClient(app, raise_server_exceptions=False) as client:
+        login = client.post("/api/auth/login", json={"username": "何深", "password": PASSWORDS["何深"]})
+        assert login.status_code == 200, login.text
+        peer = create_device(client, "r1")
+        target = create_device(client, "r2")
+        link = client.post("/api/links", json={
+            "device_a_id": peer, "iface_a": "eth2", "device_b_id": target, "iface_b": "eth1",
+        })
+        assert link.status_code == 201, link.text
+        local = r2_text.replace("network 10.12.0.0/30 area 0.0.0.0",
+                                "network 10.12.0.0/30 area 0.0.0.1")
+        endpoint = f"/api/devices/{target}/diagnosis-imports"
+        invalid = make_bundle(local, status="ospf_area_mismatch", peer_config=r1_text + "\x00")
+        response = client.post(endpoint, json={"bundle": invalid})
+        assert response.status_code == 422, response.text
+        assert response.json()["error"]["code"] == "CONFIG_UNUSABLE"
+
+        for device in (target, peer):
+            root = f"/api/devices/{device}"
+            for resource in ("configs?include_historical=true", "rules/runs",
+                             "diagnosis-imports", "change-requests"):
+                rows = client.get(f"{root}/{resource}")
+                assert rows.status_code == 200, rows.text
+                assert rows.json()["data"] == []
+
+        corrected = make_bundle(local, status="ospf_area_mismatch", peer_config=r1_text)
+        retry = client.post(endpoint, json={"bundle": corrected})
+        assert retry.status_code == 201, retry.text
+        assert retry.json()["data"]["status"] == "draft"
+
+
 def test_failure_after_draft_rolls_back_all_records(app_client, monkeypatch, r1_text, r2_text):
     import domain.netcfg.diagnosis_import as di
     from domain.netcfg.service import ServiceError

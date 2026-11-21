@@ -70,20 +70,24 @@ def list_devices(db: Session) -> list[Device]:
 
 def import_config(db: Session, device_id: str, text: str, source_name: str,
                   *, historical: bool = False) -> tuple[ConfigVersion, bool]:
-    """Parse and store a version. Re-importing identical bytes returns the existing row."""
+    """Store a config version, preferring a current match for historical evidence.
+
+    A regular import can create a current version even when identical evidence
+    is already stored as a historical version.
+    """
     device = _device(db, device_id)
     try:
         parsed: ParsedConfig = parse_frr_config(text, source_name or "config")
     except ValueError as exc:  # ConfigParseError
         raise ServiceError("CONFIG_UNUSABLE", str(exc), 422) from exc
 
-    existing = db.scalar(
-        select(ConfigVersion).where(
-            ConfigVersion.device_id == device.id,
-            ConfigVersion.raw_sha256 == parsed.raw_sha256,
-            ConfigVersion.historical.is_(historical),
-        )
+    matches = select(ConfigVersion).where(
+        ConfigVersion.device_id == device.id,
+        ConfigVersion.raw_sha256 == parsed.raw_sha256,
     )
+    if not historical:
+        matches = matches.where(ConfigVersion.historical.is_(False))
+    existing = db.scalar(matches.order_by(ConfigVersion.historical.asc()).limit(1))
     if existing is not None:
         return existing, False
 
