@@ -321,6 +321,28 @@ class CollectionEvent(Base):
     __table_args__ = (CheckConstraint("status IN ('success','failed')", name="ck_collection_status"),)
 
 
+class DeviceMapping(Base):
+    """Explicit binding of (environment, topology, node) to a registered device."""
+
+    __tablename__ = "device_mappings"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uid)
+    environment: Mapped[str] = mapped_column(String(80), nullable=False)
+    topology: Mapped[str] = mapped_column(String(80), nullable=False)
+    node: Mapped[str] = mapped_column(String(80), nullable=False)
+    device_id: Mapped[str] = mapped_column(ForeignKey("devices.id", ondelete="CASCADE"), nullable=False, index=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
+    deactivated_by: Mapped[str | None] = mapped_column(String(80))
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    __table_args__ = (
+        Index("one_active_mapping", "environment", "topology", "node", unique=True,
+              sqlite_where=text("active = 1"), postgresql_where=text("active")),
+    )
+
+
 class DiagnosisImport(Base):
     """One read-only diagnosis bundle import, traceable from the device detail.
 
@@ -336,6 +358,8 @@ class DiagnosisImport(Base):
     trace_id: Mapped[str] = mapped_column(String(64), nullable=False)
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     submitted_by: Mapped[str] = mapped_column(String(80), nullable=False)
+    environment: Mapped[str | None] = mapped_column(String(80))
+    topology: Mapped[str | None] = mapped_column(String(80))
     diagnosis_status: Mapped[str] = mapped_column(String(40), nullable=False)
     diagnosis_conclusion: Mapped[str] = mapped_column(Text, nullable=False)
     external_commands: Mapped[list] = mapped_column(JSON, nullable=False)

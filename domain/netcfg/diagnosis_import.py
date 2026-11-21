@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from engine.models import ConfigVersion, Device, DeviceLink, DiagnosisImport, Finding
 
-from . import change_requests
+from . import change_requests, mappings
 from .service import ServiceError, _device, import_config, run_rules_check
 
 
@@ -210,7 +210,8 @@ def _iface_from_path(path: str | None) -> str | None:
 
 def _finding_matches_link(db: Session, device_id: str, finding: Finding,
                           link: dict[str, Any], local_version_id: str,
-                          expected_peer_version_id: str | None) -> bool:
+                          expected_peer_version_id: str | None,
+                          peer_device_id: str | None) -> bool:
     """A per-link R005 finding must be about the bundle's link, the peer device
     and both config versions; otherwise the import keeps evidence without a draft."""
     evidence = finding.evidence or []
@@ -226,13 +227,14 @@ def _finding_matches_link(db: Session, device_id: str, finding: Finding,
     peer_version_id = peer.get("version_id")
     if not isinstance(peer_version_id, str) or not peer_version_id:
         return False
-    # The peer node must be a registered device on the same link.
-    peer_device = db.scalar(select(Device).where(Device.name == link.get("peer")))
-    if peer_device is None or peer_device.id == device_id:
+    if peer_device_id is None or peer_device_id == device_id:
         return False
-    # The cited peer version must belong to that peer device.
+    peer_device = db.get(Device, peer_device_id)
+    if peer_device is None:
+        return False
+    # The cited peer version must belong to the mapped peer device.
     peer_version = db.get(ConfigVersion, peer_version_id)
-    if peer_version is None or peer_version.device_id != peer_device.id:
+    if peer_version is None or peer_version.device_id != peer_device_id:
         return False
     if expected_peer_version_id is None or peer_version.id != expected_peer_version_id:
         return False
@@ -268,14 +270,22 @@ def _derive_remediation(finding: Finding) -> list[str]:
 
 
 def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor: str,
-                     *, preferred_rule: str | None = None) -> dict[str, Any]:
+                     *, environment: str, topology: str,
+                     preferred_rule: str | None = None) -> dict[str, Any]:
     bundle = verify_bundle(bundle)
-    device = _device(db, device_id)
+    _device(db, device_id)
     snapshot = bundle["config_snapshot"]
-    if device.name != snapshot["node"]:
-        raise ServiceError("DEVICE_NODE_MISMATCH",
-                           f"目标设备 {device.name} 与包内节点 {snapshot['node']} 不一致；"
-                           "请选择名称与该节点一致的设备", 422)
+    environment = (environment or "").strip()
+    topology = (topology or "").strip()
+    if not environment or not topology:
+        raise ServiceError("MAPPING_REQUIRED", "导入需要明确的环境和拓扑", 422)
+    mapping = mappings.resolve_mapping(db, environment, topology, snapshot["node"])
+    if mapping is None:
+        raise ServiceError("MAPPING_NOT_FOUND",
+                           f"环境 {environment} / 拓扑 {topology} / 节点 {snapshot['node']} 没有有效映射", 422)
+    if mapping.device_id != device_id:
+        raise ServiceError("MAPPING_DEVICE_MISMATCH",
+                           f"节点 {snapshot['node']} 映射到设备 {mapping.device_id}，与当前设备不一致", 422)
 
     existing = db.scalar(select(DiagnosisImport).where(
         DiagnosisImport.device_id == device_id,
@@ -295,7 +305,8 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
     peer_id = peer_version_id = None
     peer_snapshot = bundle.get("peer_snapshot")
     if diagnosis["status"] == "ospf_area_mismatch" and isinstance(peer_snapshot, dict):
-        peer = db.scalar(select(Device).where(Device.name == bundle["link"]["peer"]))
+        peer_mapping = mappings.resolve_mapping(db, environment, topology, str(link.get("peer")))
+        peer = db.get(Device, peer_mapping.device_id) if peer_mapping else None
         if peer is not None and _registered_link(db, device_id, link, peer.id):
             peer_version, _ = import_config(
                 db, peer.id, peer_snapshot["text"],
@@ -305,6 +316,8 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
     peer_versions = {peer_id: peer_version_id} if peer_id and peer_version_id else None
     run = run_rules_check(db, device_id, version.id, include_cross=True,
                           peer_versions=peer_versions)
+    peer_mapping_missing = (diagnosis["status"] == "ospf_area_mismatch"
+                            and peer_id is None)
     if run["config_version_id"] != version.id:
         raise ServiceError("RULE_VERSION_MISMATCH", "规则运行未绑定导入的版本", 500)
     if any(item.get("config_version_id") != version.id for item in run["findings"]):
@@ -330,13 +343,12 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
             candidate = db.get(Finding, item["id"])
             # Bound the draft to the link the bundle refers to (R005 is per-link).
             if diagnosis["status"] == "ospf_area_mismatch" and not _finding_matches_link(
-                    db, device_id, candidate, link, version.id, peer_version_id):
+                    db, device_id, candidate, link, version.id, peer_version_id, peer_id):
                 continue
             eligible = candidate
             break
         if eligible is None:
             no_draft_reason = f"没有符合 {diagnosis['status']} 的 violated Finding（{', '.join(rules)}）"
-
     finding_id = None
     change_request_id = None
     status = "no_draft"
@@ -354,12 +366,18 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
             change_request_id = request.id
             status = "draft"
 
+    if peer_mapping_missing and status == "no_draft":
+        no_draft_reason = (f"对端节点 {bundle['link'].get('peer')} 在 {environment}/{topology} 没有有效映射，"
+                           "只保存证据")
+
     record = DiagnosisImport(
         device_id=device_id,
         bundle_sha256=bundle["bundle_sha256"],
         trace_id=bundle["trace_id"],
         status=status,
         submitted_by=actor,
+        environment=environment,
+        topology=topology,
         diagnosis_status=diagnosis["status"],
         diagnosis_conclusion=diagnosis["conclusion"],
         external_commands=external_commands,
@@ -448,6 +466,8 @@ def import_payload(record: DiagnosisImport, *, duplicate: bool = False) -> dict[
         "bundle_sha256": record.bundle_sha256,
         "trace_id": record.trace_id,
         "submitted_by": record.submitted_by,
+        "environment": record.environment,
+        "topology": record.topology,
         "diagnosis_status": record.diagnosis_status,
         "diagnosis_conclusion": record.diagnosis_conclusion,
         "config_version_id": record.config_version_id,

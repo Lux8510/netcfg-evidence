@@ -192,11 +192,15 @@ def test_concurrent_diagnosis_import_keeps_one_record(server):
     base, token = server
     device_id = create_device(server, "r2")
     bundle = _diagnosis_bundle(BASELINE, "9" * 64)
+    with client(token) as http:
+        mapped = http.post(base + "/api/mappings", json={
+            "environment": "lab", "topology": "ospf", "node": "r2", "device_id": device_id})
+        assert mapped.status_code == 201, mapped.text
 
     def do_import(_):
         with client(token) as http:
             return http.post(base + f"/api/devices/{device_id}/diagnosis-imports",
-                             json={"bundle": bundle})
+                             json={"bundle": bundle, "environment": "lab", "topology": "ospf"})
 
     with ThreadPoolExecutor(max_workers=4) as pool:
         results = list(pool.map(do_import, range(4)))

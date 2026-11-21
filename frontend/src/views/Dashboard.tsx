@@ -853,6 +853,8 @@ function DiagnosisImportCard({ rows, deviceId, onImported }: {
 }) {
   const [detail, setDetail] = useState<DiagnosisImport | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [environment, setEnvironment] = useState('');
+  const [topology, setTopology] = useState('');
   const [result, setResult] = useState<DiagnosisImport | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -860,6 +862,10 @@ function DiagnosisImportCard({ rows, deviceId, onImported }: {
 
   async function upload() {
     if (!file || !deviceId) return;
+    if (!environment.trim() || !topology.trim()) {
+      setError('请先填写环境和拓扑（需与已登记映射一致）');
+      return;
+    }
     setBusy(true);
     setError('');
     setResult(null);
@@ -873,7 +879,7 @@ function DiagnosisImportCard({ rows, deviceId, onImported }: {
         return;
       }
       const row = await api<DiagnosisImport>(`/devices/${deviceId}/diagnosis-imports`, {
-        body: { bundle },
+        body: { bundle, environment: environment.trim(), topology: topology.trim() },
       });
       setResult(row);
       onImported?.();
@@ -897,6 +903,16 @@ function DiagnosisImportCard({ rows, deviceId, onImported }: {
                   action={<Sparkles size={16} className="text-muted" />} />
 
       <div className="mb-3 space-y-2 rounded-xl border border-line bg-panel-2 p-3">
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="环境">
+            <Input value={environment} onChange={(event) => setEnvironment(event.target.value)}
+                   placeholder="如 lab" data-testid="diagnosis-environment" />
+          </Field>
+          <Field label="拓扑">
+            <Input value={topology} onChange={(event) => setTopology(event.target.value)}
+                   placeholder="如 ospf" data-testid="diagnosis-topology" />
+          </Field>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <input ref={inputRef} type="file" accept="application/json,.json" className="hidden"
                  data-testid="diagnosis-upload-input"
@@ -918,7 +934,7 @@ function DiagnosisImportCard({ rows, deviceId, onImported }: {
           </span>
         </div>
         <p className="text-[10px] text-muted">
-          设备名必须与包内节点一致；导入只创建草稿，不移动基线、不写入设备。
+          环境/拓扑/包内节点必须已有有效映射；导入只创建草稿，不移动基线、不写入设备。
         </p>
       </div>
 

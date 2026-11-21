@@ -527,8 +527,11 @@ def test_diagnosis_import_opens_local_findings_and_evidence(page, server):
                            "network 10.12.0.0/30 area 0.0.0.1")
     api_post(server, f"/api/devices/{r2}/configs", {"text": local, "source_name": "r2"})
     api_post(server, "/api/links", {"device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
+    _map_device(server, "lab", "ospf", "r1", r1)
+    _map_device(server, "lab", "ospf", "r2", r2)
     api_post(server, f"/api/devices/{r2}/diagnosis-imports",
-             {"bundle": _area_diagnosis_bundle(local, BASELINE)})
+             {"bundle": _area_diagnosis_bundle(local, BASELINE),
+              "environment": "lab", "topology": "ospf"})
 
     page.goto(server)
     page.select_option("[data-testid=device-select]", r2)
@@ -544,8 +547,10 @@ def test_diagnosis_import_opens_local_findings_and_evidence(page, server):
 
 def test_diagnosis_import_is_visible_from_device_detail(page, server):
     device = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    _map_device(server, "lab", "ospf", "r2", device)
     api_post(server, f"/api/devices/{device}/diagnosis-imports",
-             {"bundle": _diagnosis_bundle(BASELINE, node="r2")})
+             {"bundle": _diagnosis_bundle(BASELINE, node="r2"),
+              "environment": "lab", "topology": "ospf"})
 
     page.goto(server)
     page.select_option("[data-testid=device-select]", device)
@@ -564,9 +569,17 @@ def test_diagnosis_import_is_visible_from_device_detail(page, server):
     assert "hostname r1" in version_text
 
 
-def _upload_bundle(page, tmp_path, name: str, bundle: dict) -> None:
+def _map_device(server, environment: str, topology: str, node: str, device_id: str) -> None:
+    api_post(server, "/api/mappings", {"environment": environment, "topology": topology,
+                                       "node": node, "device_id": device_id})
+
+
+def _upload_bundle(page, tmp_path, name: str, bundle: dict, *,
+                   environment: str = "lab", topology: str = "ospf") -> None:
     path = tmp_path / name
     path.write_text(json.dumps(bundle), encoding="utf-8")
+    page.fill("[data-testid=diagnosis-environment]", environment)
+    page.fill("[data-testid=diagnosis-topology]", topology)
     page.set_input_files("[data-testid=diagnosis-upload-input]", str(path))
     page.wait_for_function("() => !document.querySelector('[data-testid=diagnosis-upload-submit]').disabled")
     page.click("[data-testid=diagnosis-upload-submit]")
@@ -574,6 +587,7 @@ def _upload_bundle(page, tmp_path, name: str, bundle: dict) -> None:
 
 def test_upload_normal_bundle_stores_evidence_only(page, server, tmp_path):
     device = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    _map_device(server, "lab", "ospf", "r2", device)
     page.goto(server)
     page.select_option("[data-testid=device-select]", device)
     _upload_bundle(page, tmp_path, "normal.json", _diagnosis_bundle(BASELINE, node="r2"))
@@ -588,6 +602,8 @@ def test_upload_area_bundle_creates_local_r005_draft(page, server, tmp_path):
     r1 = api_post(server, "/api/devices", {"name": "r1"})["id"]
     r2 = api_post(server, "/api/devices", {"name": "r2"})["id"]
     api_post(server, "/api/links", {"device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
+    _map_device(server, "lab", "ospf", "r1", r1)
+    _map_device(server, "lab", "ospf", "r2", r2)
     local = SECOND.replace("network 10.12.0.0/30 area 0.0.0.0",
                            "network 10.12.0.0/30 area 0.0.0.1")
     page.goto(server)
@@ -602,13 +618,15 @@ def test_upload_area_bundle_creates_local_r005_draft(page, server, tmp_path):
 
 
 def test_upload_device_mismatch_shows_server_reason(page, server, tmp_path):
+    owner = api_post(server, "/api/devices", {"name": "r2-owner"})["id"]
     device = api_post(server, "/api/devices", {"name": "other"})["id"]
+    _map_device(server, "lab", "ospf", "r2", owner)
     page.goto(server)
     page.select_option("[data-testid=device-select]", device)
-    _upload_bundle(page, tmp_path, "mismatch.json", _diagnosis_bundle(BASELINE, node="r2"))
+    _upload_bundle(page, tmp_path, "mismatch.json", _diagnosis_bundle(BASELINE, node="r2"), environment="lab", topology="ospf")
     page.wait_for_selector("[data-testid=diagnosis-error]")
     text = page.locator("[data-testid=diagnosis-error]").inner_text()
-    assert "DEVICE_NODE_MISMATCH" in text
+    assert "MAPPING_DEVICE_MISMATCH" in text
     imports = httpx.get(server + f"/api/devices/{device}/diagnosis-imports",
                         cookies=api_login(server)).json()["data"]
     assert imports == []
@@ -616,6 +634,7 @@ def test_upload_device_mismatch_shows_server_reason(page, server, tmp_path):
 
 def test_upload_same_bundle_twice_returns_original_record(page, server, tmp_path):
     device = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    _map_device(server, "lab", "ospf", "r2", device)
     page.goto(server)
     page.select_option("[data-testid=device-select]", device)
     bundle = _diagnosis_bundle(BASELINE, node="r2")
@@ -632,6 +651,7 @@ def test_upload_same_bundle_twice_returns_original_record(page, server, tmp_path
 def test_upload_response_after_switching_devices_does_not_leak(page, server, tmp_path):
     r2 = api_post(server, "/api/devices", {"name": "r2"})["id"]
     r3 = api_post(server, "/api/devices", {"name": "r3"})["id"]
+    _map_device(server, "lab", "ospf", "r2", r2)
     bundle = _diagnosis_bundle(BASELINE, node="r2")
 
     def slow_import(route):
@@ -660,3 +680,55 @@ def test_upload_response_after_switching_devices_does_not_leak(page, server, tmp
     page.select_option("[data-testid=device-select]", r2)
     page.wait_for_selector("[data-testid=diagnosis-import]")
     assert "两端 Area 一致" in page.locator("[data-testid=diagnosis-imports]").inner_text()
+
+
+def test_upload_two_environments_same_node_binds_selected_device(page, server, tmp_path):
+    a = api_post(server, "/api/devices", {"name": "r2-a"})["id"]
+    b = api_post(server, "/api/devices", {"name": "r2-b"})["id"]
+    _map_device(server, "env-a", "core", "r2", a)
+    _map_device(server, "env-b", "core", "r2", b)
+    page.goto(server)
+
+    page.select_option("[data-testid=device-select]", a)
+    _upload_bundle(page, tmp_path, "a.json", _diagnosis_bundle(BASELINE, node="r2"),
+                   environment="env-a", topology="core")
+    page.wait_for_selector("[data-testid=diagnosis-result-nodraft]")
+
+    page.select_option("[data-testid=device-select]", b)
+    _upload_bundle(page, tmp_path, "b.json", _diagnosis_bundle(BASELINE, node="r2"),
+                   environment="env-b", topology="core")
+    page.wait_for_selector("[data-testid=diagnosis-result-nodraft]")
+
+    imports_a = httpx.get(server + f"/api/devices/{a}/diagnosis-imports",
+                          cookies=api_login(server)).json()["data"]
+    imports_b = httpx.get(server + f"/api/devices/{b}/diagnosis-imports",
+                          cookies=api_login(server)).json()["data"]
+    assert len(imports_a) == 1 and imports_a[0]["environment"] == "env-a"
+    assert len(imports_b) == 1 and imports_b[0]["environment"] == "env-b"
+
+
+def test_upload_alias_device_mapping(page, server, tmp_path):
+    alias = api_post(server, "/api/devices", {"name": "r2-production"})["id"]
+    _map_device(server, "prod", "core", "r2", alias)
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", alias)
+    _upload_bundle(page, tmp_path, "alias.json", _diagnosis_bundle(BASELINE, node="r2"),
+                   environment="prod", topology="core")
+    page.wait_for_selector("[data-testid=diagnosis-result-nodraft]")
+    imports = httpx.get(server + f"/api/devices/{alias}/diagnosis-imports",
+                        cookies=api_login(server)).json()["data"]
+    assert len(imports) == 1 and imports[0]["device_id"] == alias
+
+
+def test_upload_wrong_environment_is_rejected(page, server, tmp_path):
+    device = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    _map_device(server, "env-a", "core", "r2", device)
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", device)
+    _upload_bundle(page, tmp_path, "wrong-env.json", _diagnosis_bundle(BASELINE, node="r2"),
+                   environment="env-b", topology="core")
+    page.wait_for_selector("[data-testid=diagnosis-error]")
+    assert "MAPPING_NOT_FOUND" in page.locator("[data-testid=diagnosis-error]").inner_text()
+    imports = httpx.get(server + f"/api/devices/{device}/diagnosis-imports",
+                        cookies=api_login(server)).json()["data"]
+    assert imports == []

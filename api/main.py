@@ -120,7 +120,16 @@ class ExplainBody(StrictBody):
 
 class DiagnosisImportBody(StrictBody):
     bundle: dict
+    environment: str = Field(min_length=1, max_length=80)
+    topology: str = Field(min_length=1, max_length=80)
     preferred_rule: str | None = Field(default=None, max_length=16)
+
+
+class MappingBody(StrictBody):
+    environment: str = Field(min_length=1, max_length=80)
+    topology: str = Field(min_length=1, max_length=80)
+    node: str = Field(min_length=1, max_length=80)
+    device_id: str = Field(min_length=36, max_length=36)
 
 
 class TransitionBody(StrictBody):
@@ -457,6 +466,7 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         try:
             record = diagnosis_import.import_diagnosis(
                 db, device_id, body.bundle, request.state.user.username,
+                environment=body.environment, topology=body.topology,
                 preferred_rule=body.preferred_rule)
         except diagnosis_import.ImportError_ as exc:
             raise service.ServiceError("INVALID_BUNDLE", str(exc), 422) from exc
@@ -467,6 +477,28 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         from domain.netcfg import diagnosis_import
         return ok([diagnosis_import.import_payload(row)
                    for row in diagnosis_import.list_imports(db, device_id)])
+
+    @app.post("/api/mappings", status_code=201)
+    def create_mapping(body: MappingBody, request: Request, db: Session = Depends(get_db)):
+        from domain.netcfg import mappings
+        mapping = mappings.create_mapping(
+            db, environment=body.environment, topology=body.topology, node=body.node,
+            device_id=body.device_id, actor=request.state.user.username)
+        return ok(mappings.payload(db, mapping))
+
+    @app.get("/api/mappings")
+    def list_mappings(environment: str | None = None, topology: str | None = None,
+                      device_id: str | None = None, db: Session = Depends(get_db)):
+        from domain.netcfg import mappings
+        return ok([mappings.payload(db, row)
+                   for row in mappings.list_mappings(db, environment=environment,
+                                                     topology=topology, device_id=device_id)])
+
+    @app.delete("/api/mappings/{mapping_id}", status_code=204)
+    def delete_mapping(mapping_id: str, request: Request, db: Session = Depends(get_db)):
+        from domain.netcfg import mappings
+        mappings.deactivate_mapping(db, mapping_id, request.state.user.username)
+        return Response(status_code=204)
 
     @app.get("/api/diagnosis-imports/{import_id}")
     def get_diagnosis_import(import_id: str, db: Session = Depends(get_db)):

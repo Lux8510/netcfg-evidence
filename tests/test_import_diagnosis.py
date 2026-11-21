@@ -8,6 +8,8 @@ import pytest
 from conftest import create_device, import_config
 from domain.netcfg.diagnosis_import import ImportError_, canonical, observation_digest, verify_bundle
 
+IMPORT_CONTEXT = {"environment": "lab", "topology": "ospf"}
+
 
 def _sha(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
@@ -136,9 +138,9 @@ def test_wrong_device_node_binding_is_rejected(app_client, r1_text):
     unrelated = create_device(app_client, "unrelated")
     bundle = make_bundle(r1_text, node="r2", trace_id="10" + "0" * 62)
     response = app_client.post(f"/api/devices/{unrelated}/diagnosis-imports",
-                               json={"bundle": bundle})
+                               json={"bundle": bundle, **IMPORT_CONTEXT})
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "DEVICE_NODE_MISMATCH"
+    assert response.json()["error"]["code"] == "MAPPING_NOT_FOUND"
     assert app_client.get(f"/api/devices/{unrelated}/configs").json()["data"] == []
     assert app_client.get(f"/api/devices/{unrelated}/rules/runs").json()["data"] == []
     assert app_client.get(f"/api/devices/{unrelated}/change-requests").json()["data"] == []
@@ -150,7 +152,7 @@ def test_malformed_device_is_422(app_client, r1_text):
     bundle = make_bundle(r1_text, node="r2", trace_id="11" + "0" * 62)
     bundle["device"] = "r2"
     _rehash(bundle)
-    response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle})
+    response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle, **IMPORT_CONTEXT})
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "INVALID_BUNDLE"
 
@@ -162,7 +164,7 @@ def test_area_import_creates_draft_from_pinned_peer_snapshot(app_client, r1_text
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="12" + "0" * 62)
     result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "draft"
     change = app_client.get(f"/api/change-requests/{result['change_request_id']}").json()["data"]
     assert change["proposed_commands"] == ["interface eth1", "ip ospf area 0.0.0.0"]
@@ -175,7 +177,7 @@ def test_area_without_peer_snapshot_only_stores_evidence(app_client, r1_text, r2
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          trace_id="13" + "0" * 62)
     result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "no_draft"
     assert result["change_request_id"] is None
 
@@ -188,7 +190,7 @@ def test_draft_uses_peer_snapshot_not_latest_peer_version(app_client, r1_text, r
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="14" + "0" * 62)
     result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "draft"
     change = app_client.get(f"/api/change-requests/{result['change_request_id']}").json()["data"]
     assert change["proposed_commands"] == ["interface eth1", "ip ospf area 0.0.0.0"]
@@ -202,7 +204,7 @@ def test_peer_identity_mismatch_does_not_create_draft(app_client, r1_text, r2_te
     bundle["link"]["peer_interface"] = "eth9"
     _rehash(bundle)
     # peer_snapshot node no longer matches link.peer -> rejected
-    response = app_client.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle})
+    response = app_client.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle, **IMPORT_CONTEXT})
     assert response.status_code == 422
 
 
@@ -212,7 +214,7 @@ def test_unrelated_violation_only_stores_evidence(app_client, r1_text):
     bundle = make_bundle(broken, node="r2", status="interface_admin_down",
                          trace_id="16" + "0" * 62)
     result = app_client.post(f"/api/devices/{device}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "no_draft"
     assert result["no_draft_reason"]
 
@@ -222,7 +224,7 @@ def test_preferred_rule_outside_mapping_sets_reason(app_client, r1_text, r2_text
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="17" + "0" * 62)
     result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                             json={"bundle": bundle, "preferred_rule": "R001"}).json()["data"]
+                             json={"bundle": bundle, "preferred_rule": "R001", **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "no_draft"
     assert result["no_draft_reason"] and "R001" in result["no_draft_reason"]
 
@@ -234,9 +236,9 @@ def test_idempotent_reimport_and_trace_dedup(app_client, r1_text, r2_text):
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="18" + "0" * 62)
     first = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                            json={"bundle": bundle}).json()["data"]
+                            json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     second = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert first["id"] == second["id"] and second["duplicate"] is True
     assert len(app_client.get(f"/api/devices/{r2}/configs").json()["data"]) == 1
     assert len(app_client.get(f"/api/devices/{r2}/rules/runs").json()["data"]) == 1
@@ -248,7 +250,7 @@ def test_idempotent_reimport_and_trace_dedup(app_client, r1_text, r2_text):
     rebundled["created_at_utc"] = "2026-11-20T00:01:00+00:00"
     _rehash(rebundled)
     third = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                            json={"bundle": rebundled}).json()["data"]
+                            json={"bundle": rebundled, **IMPORT_CONTEXT}).json()["data"]
     assert third["id"] == first["id"]
 
 
@@ -270,7 +272,7 @@ def test_unusable_peer_snapshot_returns_422_and_allows_retry(api_app, r1_text, r
                                 "network 10.12.0.0/30 area 0.0.0.1")
         endpoint = f"/api/devices/{target}/diagnosis-imports"
         invalid = make_bundle(local, status="ospf_area_mismatch", peer_config=r1_text + "\x00")
-        response = client.post(endpoint, json={"bundle": invalid})
+        response = client.post(endpoint, json={"bundle": invalid, **IMPORT_CONTEXT})
         assert response.status_code == 422, response.text
         assert response.json()["error"]["code"] == "CONFIG_UNUSABLE"
 
@@ -283,7 +285,7 @@ def test_unusable_peer_snapshot_returns_422_and_allows_retry(api_app, r1_text, r
                 assert rows.json()["data"] == []
 
         corrected = make_bundle(local, status="ospf_area_mismatch", peer_config=r1_text)
-        retry = client.post(endpoint, json={"bundle": corrected})
+        retry = client.post(endpoint, json={"bundle": corrected, **IMPORT_CONTEXT})
         assert retry.status_code == 201, retry.text
         assert retry.json()["data"]["status"] == "draft"
 
@@ -306,7 +308,7 @@ def test_failure_after_draft_rolls_back_all_records(app_client, monkeypatch, r1_
     def boom(self, *args, **kwargs):
         raise ServiceError("INJECTED", "注入失败", 422)
     monkeypatch.setattr(di.DiagnosisImport, "__init__", boom)
-    response = app_client.post(f"/api/devices/{fresh}/diagnosis-imports", json={"bundle": bundle})
+    response = app_client.post(f"/api/devices/{fresh}/diagnosis-imports", json={"bundle": bundle, **IMPORT_CONTEXT})
     assert response.status_code == 422
     assert app_client.get(f"/api/devices/{fresh}/configs").json()["data"] == []
     assert app_client.get(f"/api/devices/{fresh}/rules/runs").json()["data"] == []
@@ -314,7 +316,7 @@ def test_failure_after_draft_rolls_back_all_records(app_client, monkeypatch, r1_
     assert app_client.get(f"/api/devices/{fresh}/diagnosis-imports").json()["data"] == []
 
     monkeypatch.setattr(di.DiagnosisImport, "__init__", original_init)
-    retry = app_client.post(f"/api/devices/{fresh}/diagnosis-imports", json={"bundle": bundle})
+    retry = app_client.post(f"/api/devices/{fresh}/diagnosis-imports", json={"bundle": bundle, **IMPORT_CONTEXT})
     assert retry.status_code == 201, retry.text
     assert retry.json()["data"]["status"] == "draft"
     assert len(app_client.get(f"/api/devices/{fresh}/configs").json()["data"]) == 1
@@ -330,7 +332,7 @@ def test_baseline_is_never_moved(app_client, r1_text):
     before = app_client.get(f"/api/devices/{device}/baseline").json()["data"]
     bundle = make_bundle(r1_text.replace(" ip ospf cost 10", " ip ospf cost 30"),
                          node="r2", trace_id="20" + "0" * 62)
-    app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle})
+    app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle, **IMPORT_CONTEXT})
     after = app_client.get(f"/api/devices/{device}/baseline").json()["data"]
     assert after["config_version_id"] == before["config_version_id"]
 
@@ -339,7 +341,7 @@ def test_record_is_traceable_and_stores_observations(app_client, r1_text):
     device = create_device(app_client, "r2")
     bundle = make_bundle(r1_text, node="r2", trace_id="21" + "0" * 62)
     result = app_client.post(f"/api/devices/{device}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     rows = app_client.get(f"/api/devices/{device}/diagnosis-imports").json()["data"]
     assert [row["id"] for row in rows] == [result["id"]]
     row = rows[0]
@@ -370,7 +372,7 @@ def test_unregistered_link_does_not_write_peer_config(app_client, r1_text, r2_te
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="30" + "0" * 62)
     result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "no_draft"
     after = app_client.get(f"/api/devices/{r1}/configs").json()["data"]
     assert [row["id"] for row in after] == [row["id"] for row in before]
@@ -384,7 +386,7 @@ def test_peer_snapshot_is_historical_and_not_latest(app_client, r1_text, r2_text
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="31" + "0" * 62)
     result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "draft"
     current = app_client.get(f"/api/devices/{r1}/configs").json()["data"]
     assert len(current) == 1
@@ -399,7 +401,7 @@ def test_existing_same_hash_peer_version_is_reused(app_client, r1_text, r2_text)
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="32" + "0" * 62)
     result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "draft"
     all_versions = app_client.get(f"/api/devices/{r1}/configs",
                                   params={"include_historical": True}).json()["data"]
@@ -417,7 +419,7 @@ def test_peer_with_only_historical_version_is_undetermined(app_client, r1_text, 
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="40" + "0" * 62)
     result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
-                             json={"bundle": bundle}).json()["data"]
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "draft"
     check = app_client.post(f"/api/devices/{r2}/rules/check",
                             json={"include_cross": True}).json()["data"]
@@ -429,7 +431,7 @@ def test_normal_upload_can_become_current_after_historical_version(app_client, r
     r1, r2, local = _manual_area(app_client, r1_text, r2_text, peer_area="0.0.0.2", link=True)
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="41" + "0" * 62)
-    app_client.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle})
+    app_client.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle, **IMPORT_CONTEXT})
     # r1 now has current 0.0.0.2 + historical 0.0.0.0.
     response = app_client.post(f"/api/devices/{r1}/configs",
                                json={"text": r1_text, "source_name": "upload"})
@@ -451,7 +453,7 @@ def test_snapshot_stdout_bytes_must_match_text(app_client, r1_text):
     bundle["citations"][0]["content_sha256"] = observation_digest(
         bundle["citations"][0]["observations"])
     _rehash(bundle)
-    response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle})
+    response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle, **IMPORT_CONTEXT})
     assert response.status_code == 422
 
 
@@ -462,6 +464,6 @@ def test_non_snapshot_truncation_flags_must_be_consistent(app_client, r1_text):
     bundle["citations"][0]["content_sha256"] = observation_digest(
         bundle["citations"][0]["observations"])
     _rehash(bundle)
-    response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle})
+    response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle, **IMPORT_CONTEXT})
     # Truncated flag with bytes equal to text is self-inconsistent and rejected.
     assert response.status_code == 422

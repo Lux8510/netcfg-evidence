@@ -32,7 +32,7 @@ from sqlalchemy.orm import sessionmaker
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from domain.netcfg import diagnosis_import, service  # noqa: E402
+from domain.netcfg import diagnosis_import, mappings, service  # noqa: E402
 from domain.netcfg.diagnosis_import import canonical  # noqa: E402
 from engine import models  # noqa: E402
 from engine.db import init_db  # noqa: E402
@@ -142,6 +142,10 @@ def main(argv: list[str] | None = None) -> int:
         r1 = service.create_device(session, "r1")
         r2 = service.create_device(session, "r2")
         service.create_link(session, r1.id, "eth1", r2.id, "eth1")
+        mappings.create_mapping(session, environment="lab", topology="ospf", node="r1",
+                                device_id=r1.id, actor="pg-admin")
+        mappings.create_mapping(session, environment="lab", topology="ospf", node="r2",
+                                device_id=r2.id, actor="pg-admin")
         session.commit()
         r1_id, r2_id = r1.id, r2.id
     with tempfile.TemporaryDirectory(prefix="netcfg-pg-") as folder:
@@ -155,7 +159,9 @@ def main(argv: list[str] | None = None) -> int:
             for _ in range(3):
                 try:
                     with factory() as session:
-                        result = diagnosis_import.import_diagnosis(session, r2_id, bundle, "pg-admin")
+                        result = diagnosis_import.import_diagnosis(
+                            session, r2_id, bundle, "pg-admin",
+                            environment="lab", topology="ospf")
                         session.commit()
                         return result["id"]
                 except Exception as exc:  # retry transient serialization/deadlock errors
@@ -190,7 +196,8 @@ def main(argv: list[str] | None = None) -> int:
         failed = False
         try:
             with factory() as session:
-                diagnosis_import.import_diagnosis(session, r2_id, retry_bundle, "pg-admin")
+                diagnosis_import.import_diagnosis(session, r2_id, retry_bundle, "pg-admin",
+                                                  environment="lab", topology="ospf")
                 session.commit()
         except Exception:
             failed = True
@@ -202,7 +209,8 @@ def main(argv: list[str] | None = None) -> int:
             after = count_rows(session, r2_id)
         assert after == before, (before, after)
         with factory() as session:
-            retried = diagnosis_import.import_diagnosis(session, r2_id, retry_bundle, "pg-admin")
+            retried = diagnosis_import.import_diagnosis(session, r2_id, retry_bundle, "pg-admin",
+                                                        environment="lab", topology="ospf")
             session.commit()
         assert retried["status"] == "draft"
         report["checks"].append({"check": "postgres_rollback_after_draft", "unchanged": True,

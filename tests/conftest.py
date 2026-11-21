@@ -124,7 +124,12 @@ def r4_text() -> str:
 def create_device(client, name: str = "r1") -> str:
     response = client.post("/api/devices", json={"name": name})
     assert response.status_code == 201, response.text
-    return response.json()["data"]["id"]
+    device_id = response.json()["data"]["id"]
+    # Most tests exercise the import flow; give every test device a default mapping.
+    mapped = client.post("/api/mappings", json={
+        "environment": "lab", "topology": "ospf", "node": name, "device_id": device_id})
+    assert mapped.status_code == 201, mapped.text
+    return device_id
 
 
 def import_config(client, device_id: str, text: str, source_name: str = "r1.conf"):

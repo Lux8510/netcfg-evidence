@@ -105,7 +105,8 @@ def counts(client: httpx.Client, device_id: str) -> dict[str, int]:
 def import_bundle(base: str, bundle: Path, device_id: str) -> tuple[int, dict | None]:
     cli = ROOT / "scripts/import_diagnosis.py"
     done = run([sys.executable, str(cli), "--bundle", str(bundle), "--base-url", base,
-                "--username", USER, "--device-id", device_id],
+                "--username", USER, "--device-id", device_id,
+                "--environment", "lab", "--topology", "ospf"],
                cwd=ROOT, env={"NETCFG_PASSWORD": PASSWORD}, expect=None)
     payload = None
     if done.returncode == 0:
@@ -152,6 +153,8 @@ def main(argv: list[str] | None = None) -> int:
 
                 # 1) normal: no draft, idempotent
                 r1 = get_or_create_device(client, "r1")
+                client.post("/api/mappings", json={"environment": "lab", "topology": "ospf",
+                                                   "node": "r1", "device_id": r1})
                 normal_bundle = export_bundle(netsecops, fixtures / "v04-failures/normal-trace.json",
                                               "r1", "r1", temp / "normal.json")
                 code, normal = import_bundle(base, temp / "normal.json", r1)
@@ -163,6 +166,8 @@ def main(argv: list[str] | None = None) -> int:
 
                 # 2) area mismatch: local R005 draft, idempotent
                 r2 = get_or_create_device(client, "r2")
+                client.post("/api/mappings", json={"environment": "lab", "topology": "ospf",
+                                                   "node": "r2", "device_id": r2})
                 link = client.post("/api/links", json={"device_a_id": r1, "iface_a": "eth1",
                                                        "device_b_id": r2, "iface_b": "eth1"})
                 assert link.status_code in (201, 409), link.text
@@ -256,7 +261,8 @@ def main(argv: list[str] | None = None) -> int:
                 with httpx.Client(base_url=base, cookies=client.cookies,
                                   transport=DropResponse(httpx.HTTPTransport())) as dropping:
                     with __import__("pytest").raises(httpx.ReadError):
-                        dropping.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle_payload})
+                        dropping.post(f"/api/devices/{r2}/diagnosis-imports", json={
+                            "bundle": bundle_payload, "environment": "lab", "topology": "ospf"})
                 after_drop = api(client, "GET", f"/api/devices/{r2}/diagnosis-imports")
                 first = next(row for row in after_drop if row["bundle_sha256"] == bundle_payload["bundle_sha256"])
                 code, replay = import_bundle(base, lost_bundle_path, r2)

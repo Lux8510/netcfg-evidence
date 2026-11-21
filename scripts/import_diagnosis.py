@@ -49,6 +49,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--password", default=os.environ.get("NETCFG_PASSWORD"))
     parser.add_argument("--device-id", help="目标设备 ID（推荐，明确绑定）")
     parser.add_argument("--device", help="目标设备名（仅匹配已登记设备，不自动创建）")
+    parser.add_argument("--environment", required=True, help="已登记的环境名")
+    parser.add_argument("--topology", required=True, help="已登记的拓扑名")
     parser.add_argument("--rule", help="指定本地规则；未命中时不建草稿也不回退")
     args = parser.parse_args(argv)
     if not args.password:
@@ -62,6 +64,8 @@ def main(argv: list[str] | None = None) -> int:
             device_id = _resolve_device(client, args.device_id, args.device)
             result = _data(client.post(f"/api/devices/{device_id}/diagnosis-imports", json={
                 "bundle": bundle,
+                "environment": args.environment,
+                "topology": args.topology,
                 "preferred_rule": args.rule,
             }))
     except (OSError, json.JSONDecodeError, RuntimeError, httpx.HTTPError) as exc:

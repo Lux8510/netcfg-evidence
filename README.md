@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml/badge.svg)](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB)
 ![React 19](https://img.shields.io/badge/react-19-61DAFB)
-![tests 230](https://img.shields.io/badge/tests-230-3ECF8E)
+![tests 238](https://img.shields.io/badge/tests-238-3ECF8E)
 ![license MIT](https://img.shields.io/badge/license-MIT-green)
 
 判定由确定性代码完成，模型只能解释；变更必须由人审批。系统不写入设备：只读采集仅执行白名单 `show` 命令，不下发配置、不做转发仿真。
@@ -45,7 +45,7 @@ python3.12 -m venv .venv
 
 | 项 | 数量 |
 | --- | --- |
-| 单元/接口测试 | **230**（含 8 条 hypothesis 属性测试） |
+| 单元/接口测试 | **238**（含 8 条 hypothesis 属性测试） |
 | 浏览器端到端 | **23**（真实 Chrome + 真实服务进程） |
 | 真实并发 | **3**（独立进程 + 多线程 HTTP） |
 | 评测 | 漂移 20/20 · 规则 15/15 · 解释 17/17 |
@@ -331,7 +331,7 @@ python labs/ospf-baseline/handoff.py --trace trace.json --device r2 --target r2 
 
 # netcfg 侧：显式指定目标设备（只匹配已登记设备，不自动创建）
 # 目标设备名必须等于包内节点（snapshot.node），否则拒绝
-python scripts/import_diagnosis.py --bundle handoff.json --username 何深 --device-id <uuid>
+python scripts/import_diagnosis.py --bundle handoff.json --username 何深   --device-id <uuid> --environment prod --topology core
 ```
 
 导入通过认证的 `POST /api/devices/{device_id}/diagnosis-imports` 在**一个事务**里完成：
@@ -343,7 +343,7 @@ python scripts/import_diagnosis.py --bundle handoff.json --username 何深 --dev
 5. 同 bundle 或同 trace 重复导入返回原记录（`duplicate=true`），不新增业务行；
 6. 始终不移动现有基线。
 
-设备详情提供证据包上传入口（JSON 文件），目标固定为当前选中的已登记设备，并按「已生成草稿 / 仅存证 / 重复导入」展示结果；校验失败直接显示服务端原因。也可通过 `GET /api/devices/{id}/diagnosis-imports` 追溯提交人、提交时间、完整 bundle 哈希、trace_id、原始证据摘要、config_version_id、rule_run_id 与可选 change_request_id。外部诊断结论只写入理由，**不改变判定**；两个项目共享证据，但各自保留判定权。
+设备详情提供证据包上传入口（JSON 文件），目标固定为当前选中的已登记设备，并按「已生成草稿 / 仅存证 / 重复导入」展示结果；上传时必须选择环境与拓扑，节点通过显式映射解析。校验失败直接显示服务端原因。映射与兼容策略见 [docs/DEVICE_MAPPING.md](docs/DEVICE_MAPPING.md)。也可通过 `GET /api/devices/{id}/diagnosis-imports` 追溯提交人、提交时间、完整 bundle 哈希、trace_id、原始证据摘要、config_version_id、rule_run_id 与可选 change_request_id。外部诊断结论只写入理由，**不改变判定**；两个项目共享证据，但各自保留判定权。
 
 ## 解释层：模型只能解释，不能判定
 
@@ -490,7 +490,7 @@ CONTRACT_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/netc
 make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动跳过
 ```
 
-23 条真实浏览器用例（三栏工作台）：
+26 条真实浏览器用例（三栏工作台）：
 
 1. 导入 → 设基线 → 比对 → 并排 diff 标出 cost 10 与 cost 30
 2. 规则违规 → 生成变更单 → 提交 → 批准 → 审计事件
@@ -515,6 +515,9 @@ make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动�
 21. 上传设备不匹配包：展示服务端拒绝原因，零新增记录
 22. 同包重复上传：返回原导入记录
 23. 上传后切换设备：旧响应不覆盖当前视图，切回原设备可见记录
+24. 同一节点在两个环境分别绑定两台设备，各自导入成功
+25. 设备别名映射可用（r2 → r2-production）
+26. 错误环境拒绝上传且零新增记录
 
 单元测试默认排除 `e2e`（`pyproject.toml` 的 `addopts`），所以 `pytest` 仍然是秒级；`make e2e` 单独跑浏览器用例。
 
