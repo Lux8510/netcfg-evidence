@@ -41,6 +41,7 @@ class ConfigVersion(Base):
     parsed: Mapped[dict] = mapped_column(JSON, nullable=False)
     unparsed: Mapped[list] = mapped_column(JSON, nullable=False)
     line_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    historical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
 
     __table_args__ = (UniqueConstraint("device_id", "raw_sha256", name="uq_config_device_raw"),)

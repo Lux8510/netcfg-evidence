@@ -68,15 +68,16 @@ def _rehash(bundle: dict) -> dict:
     return bundle
 
 
-def _area_setup(app_client, r1_text, r2_text):
+def _area_setup(app_client, r1_text, r2_text, *, link: bool = True):
     r1 = create_device(app_client, "r1")
     r2 = create_device(app_client, "r2")
     import_config(app_client, r1, r1_text)
     local = r2_text.replace("network 10.12.0.0/30 area 0.0.0.0",
                             "network 10.12.0.0/30 area 0.0.0.1")
     import_config(app_client, r2, local)
-    app_client.post("/api/links", json={
-        "device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
+    if link:
+        app_client.post("/api/links", json={
+            "device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
     return r1, r2, local
 
 
@@ -310,3 +311,60 @@ def test_record_is_traceable_and_stores_observations(app_client, r1_text):
     assert row["config_version_id"] and row["rule_run_id"]
     assert row["evidence"] and row["evidence"][0]["observations"]
     assert row["evidence"][0]["excerpt"] == r1_text[:600]
+
+
+def _manual_area(app_client, r1_text, r2_text, *, peer_area: str, link: bool):
+    r1 = create_device(app_client, "r1")
+    r2 = create_device(app_client, "r2")
+    peer = r1_text.replace("network 10.12.0.0/30 area 0.0.0.0",
+                           f"network 10.12.0.0/30 area {peer_area}")
+    import_config(app_client, r1, peer)
+    local = r2_text.replace("network 10.12.0.0/30 area 0.0.0.0",
+                            "network 10.12.0.0/30 area 0.0.0.1")
+    import_config(app_client, r2, local)
+    if link:
+        app_client.post("/api/links", json={
+            "device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
+    return r1, r2, local
+
+
+def test_unregistered_link_does_not_write_peer_config(app_client, r1_text, r2_text):
+    r1, r2, local = _manual_area(app_client, r1_text, r2_text, peer_area="0.0.0.2", link=False)
+    before = app_client.get(f"/api/devices/{r1}/configs").json()["data"]
+    bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
+                         peer_config=r1_text, trace_id="30" + "0" * 62)
+    result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
+                             json={"bundle": bundle}).json()["data"]
+    assert result["status"] == "no_draft"
+    after = app_client.get(f"/api/devices/{r1}/configs").json()["data"]
+    assert [row["id"] for row in after] == [row["id"] for row in before]
+    all_versions = app_client.get(f"/api/devices/{r1}/configs",
+                                  params={"include_historical": True}).json()["data"]
+    assert len(all_versions) == 1
+
+
+def test_peer_snapshot_is_historical_and_not_latest(app_client, r1_text, r2_text):
+    r1, r2, local = _manual_area(app_client, r1_text, r2_text, peer_area="0.0.0.2", link=True)
+    bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
+                         peer_config=r1_text, trace_id="31" + "0" * 62)
+    result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
+                             json={"bundle": bundle}).json()["data"]
+    assert result["status"] == "draft"
+    current = app_client.get(f"/api/devices/{r1}/configs").json()["data"]
+    assert len(current) == 1
+    all_versions = app_client.get(f"/api/devices/{r1}/configs",
+                                  params={"include_historical": True}).json()["data"]
+    assert len(all_versions) == 2
+    assert sum(1 for row in all_versions if row["historical"]) == 1
+
+
+def test_existing_same_hash_peer_version_is_reused(app_client, r1_text, r2_text):
+    r1, r2, local = _area_setup(app_client, r1_text, r2_text)  # r1 already has r1_text
+    bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
+                         peer_config=r1_text, trace_id="32" + "0" * 62)
+    result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
+                             json={"bundle": bundle}).json()["data"]
+    assert result["status"] == "draft"
+    all_versions = app_client.get(f"/api/devices/{r1}/configs",
+                                  params={"include_historical": True}).json()["data"]
+    assert len(all_versions) == 1  # same hash reused, no historical duplicate

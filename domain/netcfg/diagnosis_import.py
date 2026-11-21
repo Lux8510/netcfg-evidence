@@ -144,9 +144,10 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
              "snapshot citation belongs to another node")
     matching = [obs for obs in snapshot_citation["observations"]
                 if obs.get("exit_code") == 0
+                and not obs.get("stdout_truncated")
                 and any("show running-config" in str(part) for part in obs.get("command") or [])
                 and obs.get("stdout") == snapshot["text"]]
-    _require(bundle, len(matching) == 1, "snapshot citation has no matching running-config observation")
+    _require(bundle, len(matching) == 1, "snapshot citation has no matching untruncated running-config observation")
     matched = matching[0]
     _require(bundle, matched["command"] == snapshot["command"],
              "snapshot command does not match its citation command")
@@ -166,10 +167,26 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
                  "peer snapshot hash does not match")
         matching_peer = [obs for obs in peer_citation["observations"]
                          if obs.get("exit_code") == 0
+                         and not obs.get("stdout_truncated")
                          and any("show running-config" in str(part) for part in obs.get("command") or [])
                          and obs.get("stdout") == peer.get("text")]
-        _require(bundle, len(matching_peer) == 1, "peer snapshot has no matching running-config observation")
+        _require(bundle, len(matching_peer) == 1,
+                 "peer snapshot has no matching untruncated running-config observation")
     return bundle
+
+
+def _registered_link(db: Session, device_id: str, link: dict[str, Any], peer_id: str) -> bool:
+    local_iface = link.get("interface")
+    peer_iface = link.get("peer_interface")
+    if not local_iface or not peer_iface:
+        return False
+    row = db.scalar(select(DeviceLink).where(
+        ((DeviceLink.device_a_id == device_id) & (DeviceLink.iface_a == local_iface)
+         & (DeviceLink.device_b_id == peer_id) & (DeviceLink.iface_b == peer_iface))
+        | ((DeviceLink.device_b_id == device_id) & (DeviceLink.iface_b == local_iface)
+           & (DeviceLink.device_a_id == peer_id) & (DeviceLink.iface_a == peer_iface))
+    ))
+    return row is not None
 
 
 def _iface_from_path(path: str | None) -> str | None:
@@ -259,6 +276,7 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
     snapshot = bundle["config_snapshot"]
     diagnosis = bundle["diagnosis"]
     external_commands = [item for item in bundle["proposed_commands"] if isinstance(item, str) and item.strip()]
+    link = bundle["link"]
 
     version, _created = import_config(db, device_id, snapshot["text"],
                                       f"netsecops-{bundle['bundle_sha256'][:8]}")
@@ -266,9 +284,11 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
     peer_snapshot = bundle.get("peer_snapshot")
     if diagnosis["status"] == "ospf_area_mismatch" and isinstance(peer_snapshot, dict):
         peer = db.scalar(select(Device).where(Device.name == bundle["link"]["peer"]))
-        if peer is not None:
+        if peer is not None and _registered_link(db, device_id, link, peer.id):
+            # Historical evidence only: do not promote it to the peer's current version.
             peer_version, _ = import_config(db, peer.id, peer_snapshot["text"],
-                                            f"netsecops-peer-{bundle['bundle_sha256'][:8]}")
+                                            f"netsecops-peer-{bundle['bundle_sha256'][:8]}",
+                                            historical=True)
             peer_id, peer_version_id = peer.id, peer_version.id
     peer_versions = {peer_id: peer_version_id} if peer_id and peer_version_id else None
     run = run_rules_check(db, device_id, version.id, include_cross=True,
@@ -291,7 +311,6 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
         no_draft_reason = f"诊断 {diagnosis['status']} 没有对应的本地规则，不能自动生成变更单"
 
     eligible: Finding | None = None
-    link = bundle["link"]
     if rules:
         for item in run["findings"]:
             if item["status"] != "violated" or item["rule_id"] not in rules:

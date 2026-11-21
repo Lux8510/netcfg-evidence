@@ -280,8 +280,9 @@ def create_app(session_factory: Callable[[], Session] | None = None, init_engine
         return ok(payload)
 
     @app.get("/api/devices/{device_id}/configs")
-    def list_configs(device_id: str, db: Session = Depends(get_db)):
-        return ok([service.version_payload(v) for v in service.list_versions(db, device_id)])
+    def list_configs(device_id: str, include_historical: bool = False, db: Session = Depends(get_db)):
+        return ok([service.version_payload(v)
+                   for v in service.list_versions(db, device_id, include_historical=include_historical)])
 
     @app.get("/api/versions/{version_id}")
     def get_version(version_id: str, db: Session = Depends(get_db)):

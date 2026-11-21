@@ -68,7 +68,8 @@ def list_devices(db: Session) -> list[Device]:
     return list(db.scalars(select(Device).order_by(Device.created_at, Device.id)))
 
 
-def import_config(db: Session, device_id: str, text: str, source_name: str) -> tuple[ConfigVersion, bool]:
+def import_config(db: Session, device_id: str, text: str, source_name: str,
+                  *, historical: bool = False) -> tuple[ConfigVersion, bool]:
     """Parse and store a version. Re-importing identical bytes returns the existing row."""
     device = _device(db, device_id)
     try:
@@ -85,10 +86,11 @@ def import_config(db: Session, device_id: str, text: str, source_name: str) -> t
     if existing is not None:
         return existing, False
 
-    return _persist_version(db, device, parsed)
+    return _persist_version(db, device, parsed, historical=historical)
 
 
-def _persist_version(db: Session, device: Device, parsed: ParsedConfig) -> tuple[ConfigVersion, bool]:
+def _persist_version(db: Session, device: Device, parsed: ParsedConfig,
+                     *, historical: bool = False) -> tuple[ConfigVersion, bool]:
     """Insert a version, resolving the unique-constraint race without a 500."""
     version = ConfigVersion(
         device_id=device.id,
@@ -100,6 +102,7 @@ def _persist_version(db: Session, device: Device, parsed: ParsedConfig) -> tuple
         parsed=parsed.canonical(),
         unparsed=[line.as_dict() for line in parsed.unparsed],
         line_count=parsed.line_count,
+        historical=historical,
     )
     try:
         with _nested(db):
@@ -119,13 +122,12 @@ def _persist_version(db: Session, device: Device, parsed: ParsedConfig) -> tuple
     return version, True
 
 
-def list_versions(db: Session, device_id: str) -> list[ConfigVersion]:
+def list_versions(db: Session, device_id: str, *, include_historical: bool = False) -> list[ConfigVersion]:
     _device(db, device_id)
-    return list(db.scalars(
-        select(ConfigVersion)
-        .where(ConfigVersion.device_id == device_id)
-        .order_by(ConfigVersion.created_at.desc(), ConfigVersion.id.desc())
-    ))
+    query = select(ConfigVersion).where(ConfigVersion.device_id == device_id)
+    if not include_historical:
+        query = query.where(ConfigVersion.historical.is_(False))
+    return list(db.scalars(query.order_by(ConfigVersion.created_at.desc(), ConfigVersion.id.desc())))
 
 
 def get_version(db: Session, version_id: str) -> ConfigVersion:
@@ -138,7 +140,7 @@ def get_version(db: Session, version_id: str) -> ConfigVersion:
 def latest_version(db: Session, device_id: str) -> ConfigVersion:
     version = db.scalar(
         select(ConfigVersion)
-        .where(ConfigVersion.device_id == device_id)
+        .where(ConfigVersion.device_id == device_id, ConfigVersion.historical.is_(False))
         .order_by(ConfigVersion.created_at.desc(), ConfigVersion.id.desc())
     )
     if version is None:
@@ -230,6 +232,7 @@ def version_payload(version: ConfigVersion, include_text: bool = False) -> dict[
         "canonical_sha256": version.canonical_sha256,
         "line_count": version.line_count,
         "parser_version": parsed_version_of(version),
+        "historical": bool(getattr(version, "historical", False)),
         "parsed": version.parsed,
         "unparsed": version.unparsed,
         "created_at": version.created_at.isoformat(),
@@ -335,7 +338,8 @@ def run_rules_check(db: Session, device_id: str, version_id: str | None = None,
         "config_version_id": version.id,
         "digest": {"sha256": version.raw_sha256, "canonical_sha256": version.canonical_sha256,
                    "recomputed_canonical_sha256": parsed.canonical_sha256,
-                   "parser_version": parsed_version_of(version), "matches": digest_matches},
+                   "parser_version": parsed_version_of(version),
+        "historical": bool(getattr(version, "historical", False)), "matches": digest_matches},
         "counts": counts,
         "findings": [finding_payload(row) for row in stored],
     }
