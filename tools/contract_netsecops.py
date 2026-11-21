@@ -22,6 +22,7 @@ import json
 import os
 from pathlib import Path
 import socket
+import sqlite3
 import subprocess
 import sys
 import tempfile
@@ -88,6 +89,17 @@ def export_bundle(netsecops: Path, trace: Path, device: str, target: str, out: P
     run([sys.executable, str(handoff), "--trace", str(trace), "--device", device,
          "--target", target, "--out", str(out)], cwd=handoff.parent)
     return json.loads(out.read_text(encoding="utf-8"))
+
+
+def counts(client: httpx.Client, device_id: str) -> dict[str, int]:
+    return {
+        "configs": len(api(client, "GET", f"/api/devices/{device_id}/configs",
+                           params={"include_historical": True})),
+        "rule_runs": len(api(client, "GET", f"/api/devices/{device_id}/rules/runs")),
+        "findings": len(api(client, "GET", f"/api/devices/{device_id}/findings")),
+        "change_requests": len(api(client, "GET", f"/api/devices/{device_id}/change-requests")),
+        "imports": len(api(client, "GET", f"/api/devices/{device_id}/diagnosis-imports")),
+    }
 
 
 def import_bundle(base: str, bundle: Path, device_id: str) -> tuple[int, dict | None]:
@@ -158,11 +170,22 @@ def main(argv: list[str] | None = None) -> int:
                                             "r2", "r2", temp / "area.json")
                 code, area = import_bundle(base, temp / "area.json", r2)
                 assert code == 0 and area["status"] == "draft", (code, area)
-                assert area["change_request_id"] and area["finding_id"]
+                findings = api(client, "GET", f"/api/devices/{r2}/findings",
+                               params={"run_id": area["rule_run_id"]})
+                finding = next((row for row in findings if row["id"] == area["finding_id"]), None)
+                assert finding is not None, "linked finding is missing from the imported run"
+                assert finding["rule_id"] == "R005" and finding["status"] == "violated"
+                assert finding["config_version_id"] == area["config_version_id"]
+                change = api(client, "GET", f"/api/change-requests/{area['change_request_id']}")
+                assert change["status"] == "draft"
+                assert change["finding_ids"] == [finding["id"]]
                 _, area_replay = import_bundle(base, temp / "area.json", r2)
                 assert area_replay["id"] == area["id"] and area_replay["duplicate"] is True
                 report["cases"].append({"case": "area_mismatch", "bundle_schema": area_bundle["schema_version"],
-                                        "status": area["status"], "change_request_id": area["change_request_id"]})
+                                        "status": area["status"], "finding_rule": finding["rule_id"],
+                                        "finding_status": finding["status"],
+                                        "config_version_id": area["config_version_id"],
+                                        "change_request_id": area["change_request_id"]})
 
                 # 3) insufficient evidence: evidence only
                 insufficient_bundle = export_bundle(
@@ -175,15 +198,79 @@ def main(argv: list[str] | None = None) -> int:
                                         "status": insufficient["status"]})
 
                 # 4) rejection: tampered snapshot without rehashing
-                before = len(api(client, "GET", f"/api/devices/{r2}/diagnosis-imports"))
+                before_counts = {name: counts(client, device_id) for name, device_id in (("r2", r2), ("r1", r1))}
                 tampered = json.loads((temp / "area.json").read_text(encoding="utf-8"))
                 tampered["config_snapshot"]["text"] += "\n!"
                 (temp / "tampered.json").write_text(json.dumps(tampered), encoding="utf-8")
                 code, _ = import_bundle(base, temp / "tampered.json", r2)
-                assert code != 0, "tampered bundle was accepted"
-                after = len(api(client, "GET", f"/api/devices/{r2}/diagnosis-imports"))
-                assert after == before, "tampered import left a record"
-                report["cases"].append({"case": "rejected_tampered_bundle", "exit_code": code})
+                assert code == 2, f"tampered bundle should exit 2, got {code}"
+                after_counts = {name: counts(client, device_id) for name, device_id in (("r2", r2), ("r1", r1))}
+                assert after_counts == before_counts, (before_counts, after_counts)
+                report["cases"].append({"case": "rejected_tampered_bundle", "exit_code": code,
+                                        "counts_unchanged": after_counts == before_counts})
+
+                # 5) failure injected after the draft is written -> full rollback, retry succeeds
+                failed_trace = temp / "area-retry-trace.json"
+                trace = json.loads((fixtures / "traces/stage5-case-01.json").read_text(encoding="utf-8"))
+                trace["task"] = str(trace.get("task")) + " [retry variant]"
+                failed_trace.write_text(json.dumps(trace), encoding="utf-8")
+                failed_bundle_path = temp / "area-retry.json"
+                export_bundle(netsecops, failed_trace, "r2", "r2", failed_bundle_path)
+                before_counts = {name: counts(client, device_id) for name, device_id in (("r2", r2), ("r1", r1))}
+                database = temp / "contract.db"
+                with sqlite3.connect(database) as conn:
+                    conn.execute("CREATE TRIGGER contract_fail_import BEFORE INSERT ON diagnosis_imports "
+                                 "BEGIN SELECT RAISE(ABORT, 'injected import failure'); END")
+                    conn.commit()
+                code, _ = import_bundle(base, failed_bundle_path, r2)
+                assert code != 0, "injected failure was not reported"
+                with sqlite3.connect(database) as conn:
+                    conn.execute("DROP TRIGGER contract_fail_import")
+                    conn.commit()
+                after_counts = {name: counts(client, device_id) for name, device_id in (("r2", r2), ("r1", r1))}
+                assert after_counts == before_counts, (before_counts, after_counts)
+                code, retried = import_bundle(base, failed_bundle_path, r2)
+                assert code == 0 and retried["status"] == "draft"
+                report["cases"].append({"case": "rollback_after_draft_failure", "exit_code": code,
+                                        "counts_unchanged": after_counts == before_counts,
+                                        "retry_status": retried["status"]})
+
+                # 6) response lost after the server committed -> replay returns the original record
+                lost_trace = temp / "area-lost-trace.json"
+                trace = json.loads((fixtures / "traces/stage5-case-01.json").read_text(encoding="utf-8"))
+                trace["task"] = str(trace.get("task")) + " [lost response variant]"
+                lost_trace.write_text(json.dumps(trace), encoding="utf-8")
+                lost_bundle_path = temp / "area-lost.json"
+                export_bundle(netsecops, lost_trace, "r2", "r2", lost_bundle_path)
+                bundle_payload = json.loads(lost_bundle_path.read_text(encoding="utf-8"))
+                before_counts = counts(client, r2)
+
+                class DropResponse(httpx.BaseTransport):
+                    def __init__(self, inner: httpx.BaseTransport) -> None:
+                        self.inner = inner
+                    def handle_request(self, request: httpx.Request) -> httpx.Response:
+                        self.inner.handle_request(request)
+                        raise httpx.ReadError("simulated lost response")
+
+                with httpx.Client(base_url=base, cookies=client.cookies,
+                                  transport=DropResponse(httpx.HTTPTransport())) as dropping:
+                    with __import__("pytest").raises(httpx.ReadError):
+                        dropping.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle_payload})
+                after_drop = api(client, "GET", f"/api/devices/{r2}/diagnosis-imports")
+                first = next(row for row in after_drop if row["bundle_sha256"] == bundle_payload["bundle_sha256"])
+                code, replay = import_bundle(base, lost_bundle_path, r2)
+                assert code == 0 and replay["id"] == first["id"] and replay["duplicate"] is True
+                assert replay["config_version_id"] == first["config_version_id"]
+                assert replay["rule_run_id"] == first["rule_run_id"]
+                assert replay["change_request_id"] == first["change_request_id"]
+                assert counts(client, r2) == {**before_counts, "imports": before_counts["imports"] + 1,
+                                              "rule_runs": before_counts["rule_runs"] + 1,
+                                              "findings": before_counts["findings"] + len(
+                                                  api(client, "GET", f"/api/devices/{r2}/findings",
+                                                      params={"run_id": replay["rule_run_id"]})),
+                                              "change_requests": before_counts["change_requests"] + 1}
+                report["cases"].append({"case": "lost_response_replay", "duplicate": replay["duplicate"],
+                                        "same_import": replay["id"] == first["id"]})
 
             report["status"] = "PASS"
         finally:

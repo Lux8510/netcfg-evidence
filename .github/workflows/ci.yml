@@ -74,6 +74,49 @@ jobs:
           path: contract-report.json
           if-no-files-found: ignore
 
+  contract-postgres:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: netcfg
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Lux8510/netsecops-agent
+          path: netsecops-agent
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+      - name: PostgreSQL contract (migration, coexistence, concurrency, rollback)
+        env:
+          CONTRACT_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/netcfg
+        run: python tools/contract_postgres.py --netsecops netsecops-agent
+      - name: Upload PostgreSQL contract report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: contract-postgres-report
+          path: contract-postgres-report.json
+          if-no-files-found: ignore
+
   container:
     runs-on: ubuntu-latest
     steps:

@@ -475,6 +475,15 @@ make contract   # 需要可访问的 ../netsecops-agent checkout
 
 报告写入 `contract-report.json`，记录两个仓库的 commit 与 bundle schema。CI 的 `contract` job 会 checkout 两个仓库并运行同一脚本。
 
+PostgreSQL 验收（CI service container）：
+
+```bash
+CONTRACT_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/netcfg \
+  python tools/contract_postgres.py --netsecops ../netsecops-agent
+```
+
+覆盖：带数据迁移、同哈希历史/当前共存、并发导入去重、草稿后失败回滚。报告为 `contract-postgres-report.json`。
+
 ## 浏览器端到端
 
 ```bash
