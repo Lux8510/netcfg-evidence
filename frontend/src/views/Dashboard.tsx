@@ -298,7 +298,11 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
               <TopologyCard links={deviceLinks} currentId={deviceId} onSelect={setDeviceId} />
               <AuditCard rows={audit} />
               <DiagnosisImportCard key={deviceId} rows={diagnosisImports} deviceId={deviceId}
-                                   onImported={() => { loadDeviceData(deviceId).catch(() => undefined); }} />
+                                   onImported={() => {
+                                     // The upload may finish after the user switched devices.
+                                     if (deviceRef.current !== deviceId) return;
+                                     loadDeviceData(deviceId).catch(() => undefined);
+                                   }} />
             </div>
           </StaggerItem>
 

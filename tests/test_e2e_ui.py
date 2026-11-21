@@ -568,6 +568,7 @@ def _upload_bundle(page, tmp_path, name: str, bundle: dict) -> None:
     path = tmp_path / name
     path.write_text(json.dumps(bundle), encoding="utf-8")
     page.set_input_files("[data-testid=diagnosis-upload-input]", str(path))
+    page.wait_for_function("() => !document.querySelector('[data-testid=diagnosis-upload-submit]').disabled")
     page.click("[data-testid=diagnosis-upload-submit]")
 
 
@@ -626,3 +627,36 @@ def test_upload_same_bundle_twice_returns_original_record(page, server, tmp_path
     imports = httpx.get(server + f"/api/devices/{device}/diagnosis-imports",
                         cookies=api_login(server)).json()["data"]
     assert len(imports) == 1
+
+
+def test_upload_response_after_switching_devices_does_not_leak(page, server, tmp_path):
+    r2 = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    r3 = api_post(server, "/api/devices", {"name": "r3"})["id"]
+    bundle = _diagnosis_bundle(BASELINE, node="r2")
+
+    def slow_import(route):
+        import time
+        if route.request.method != "POST":
+            route.continue_()
+            return
+        time.sleep(2.5)
+        route.continue_()
+
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", r2)
+    page.wait_for_selector("[data-testid=diagnosis-imports]")
+    page.route(f"**/api/devices/{r2}/diagnosis-imports", slow_import)
+    _upload_bundle(page, tmp_path, "r2-normal.json", bundle)
+
+    # Switch while the r2 POST response is still held by the route handler.
+    page.select_option("[data-testid=device-select]", r3)
+    page.wait_for_function("(value) => document.querySelector('[data-testid=device-select]').value"
+                           " === value", arg=r3)
+    page.wait_for_selector("[data-testid=diagnosis-imports]")
+    page.wait_for_timeout(3500)
+    assert page.input_value("[data-testid=device-select]") == r3
+    assert "两端 Area 一致" not in page.locator("[data-testid=diagnosis-imports]").inner_text()
+
+    page.select_option("[data-testid=device-select]", r2)
+    page.wait_for_selector("[data-testid=diagnosis-import]")
+    assert "两端 Area 一致" in page.locator("[data-testid=diagnosis-imports]").inner_text()

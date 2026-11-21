@@ -7,7 +7,7 @@
 | 检查 | 命令 | 结果 |
 | --- | --- | --- |
 | 单元/接口 | `pytest` | 230 passed |
-| 浏览器 E2E | `pytest -m e2e tests/test_e2e_ui.py` | 22 passed |
+| 浏览器 E2E | `pytest -m e2e tests/test_e2e_ui.py` | 23 passed |
 | 真实并发 | `pytest -m concurrency tests/test_concurrency.py` | 3 passed |
 | 短压测 | `pytest -m load tests/test_load.py` | 1 passed |
 | 漂移评测 | `evals/run_eval.py` | 20/20，P/R 1.0000 |
