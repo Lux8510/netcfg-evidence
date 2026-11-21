@@ -231,7 +231,8 @@ def main(argv: list[str] | None = None) -> int:
                 assert after_counts == before_counts, (before_counts, after_counts)
                 code, retried = import_bundle(base, failed_bundle_path, r2)
                 assert code == 0 and retried["status"] == "draft"
-                report["cases"].append({"case": "rollback_after_draft_failure", "exit_code": code,
+                report["cases"].append({"case": "rollback_after_draft_failure",
+                                        "retry_exit_code": code,
                                         "counts_unchanged": after_counts == before_counts,
                                         "retry_status": retried["status"]})
 
