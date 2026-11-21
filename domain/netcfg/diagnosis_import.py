@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from engine.models import ConfigVersion, Device, DeviceLink, DiagnosisImport, Finding
 
 from . import change_requests
+from .parser import parse_frr_config
 from .service import ServiceError, _device, import_config, run_rules_check
 
 
@@ -132,6 +133,18 @@ def verify_bundle(bundle: dict[str, Any]) -> dict[str, Any]:
             _require(bundle, isinstance(observation.get("stdout"), str), "observation stdout is invalid")
             _require(bundle, isinstance(observation.get("stderr"), str), "observation stderr is invalid")
             _require(bundle, isinstance(observation.get("stdout_truncated"), bool), "observation truncation flag missing")
+            for key in ("stdout", "stderr"):
+                text = observation.get(key) or ""
+                size = observation.get(f"{key}_bytes")
+                truncated = observation.get(f"{key}_truncated")
+                if not isinstance(truncated, bool):
+                    truncated = observation.get("stdout_truncated") if key == "stdout" else observation.get("stderr_truncated")
+                _require(bundle, isinstance(size, int) and size >= 0, f"observation {key}_bytes is invalid")
+                actual = len(text.encode("utf-8"))
+                if truncated:
+                    _require(bundle, size > actual, f"observation {key} is marked truncated but bytes match")
+                else:
+                    _require(bundle, size == actual, f"observation {key}_bytes does not match its text")
         _require(bundle, observation_digest(observations) == item.get("content_sha256"),
                  "citation digest does not match its observations")
         by_id[item["evidence_id"]] = item
@@ -286,9 +299,19 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
         peer = db.scalar(select(Device).where(Device.name == bundle["link"]["peer"]))
         if peer is not None and _registered_link(db, device_id, link, peer.id):
             # Historical evidence only: do not promote it to the peer's current version.
-            peer_version, _ = import_config(db, peer.id, peer_snapshot["text"],
-                                            f"netsecops-peer-{bundle['bundle_sha256'][:8]}",
-                                            historical=True)
+            # If the peer already has this exact content as its current version, reuse it.
+            parsed_peer = parse_frr_config(peer_snapshot["text"],
+                                           f"netsecops-peer-{bundle['bundle_sha256'][:8]}")
+            current = db.scalar(select(ConfigVersion).where(
+                ConfigVersion.device_id == peer.id,
+                ConfigVersion.raw_sha256 == parsed_peer.raw_sha256,
+                ConfigVersion.historical.is_(False)))
+            if current is not None:
+                peer_version = current
+            else:
+                peer_version, _ = import_config(db, peer.id, peer_snapshot["text"],
+                                                f"netsecops-peer-{bundle['bundle_sha256'][:8]}",
+                                                historical=True)
             peer_id, peer_version_id = peer.id, peer_version.id
     peer_versions = {peer_id: peer_version_id} if peer_id and peer_version_id else None
     run = run_rules_check(db, device_id, version.id, include_cross=True,

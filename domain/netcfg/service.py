@@ -81,6 +81,7 @@ def import_config(db: Session, device_id: str, text: str, source_name: str,
         select(ConfigVersion).where(
             ConfigVersion.device_id == device.id,
             ConfigVersion.raw_sha256 == parsed.raw_sha256,
+            ConfigVersion.historical.is_(historical),
         )
     )
     if existing is not None:
@@ -114,6 +115,7 @@ def _persist_version(db: Session, device: Device, parsed: ParsedConfig,
             select(ConfigVersion).where(
                 ConfigVersion.device_id == device.id,
                 ConfigVersion.raw_sha256 == parsed.raw_sha256,
+                ConfigVersion.historical.is_(historical),
             )
         )
         if existing is None:
@@ -294,7 +296,8 @@ def run_rules_check(db: Session, device_id: str, version_id: str | None = None,
                         raise ServiceError("PEER_VERSION_MISMATCH", "指定的对端版本不属于该对端设备", 422)
                 else:
                     peer_version = db.scalar(
-                        select(ConfigVersion).where(ConfigVersion.device_id == peer_id)
+                        select(ConfigVersion).where(ConfigVersion.device_id == peer_id,
+                                                    ConfigVersion.historical.is_(False))
                         .order_by(ConfigVersion.created_at.desc(), ConfigVersion.id.desc()).limit(1))
                 if peer_version is None:
                     findings.append(rules_module.Finding(

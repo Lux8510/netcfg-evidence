@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml/badge.svg)](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB)
 ![React 19](https://img.shields.io/badge/react-19-61DAFB)
-![tests 225](https://img.shields.io/badge/tests-225-3ECF8E)
+![tests 229](https://img.shields.io/badge/tests-229-3ECF8E)
 ![license MIT](https://img.shields.io/badge/license-MIT-green)
 
 判定由确定性代码完成，模型只能解释；变更必须由人审批。系统不写入设备：只读采集仅执行白名单 `show` 命令，不下发配置、不做转发仿真。
@@ -45,7 +45,7 @@ python3.12 -m venv .venv
 
 | 项 | 数量 |
 | --- | --- |
-| 单元/接口测试 | **225**（含 8 条 hypothesis 属性测试） |
+| 单元/接口测试 | **229**（含 8 条 hypothesis 属性测试） |
 | 浏览器端到端 | **12**（真实 Chrome + 真实服务进程） |
 | 真实并发 | **3**（独立进程 + 多线程 HTTP） |
 | 评测 | 漂移 20/20 · 规则 15/15 · 解释 17/17 |
@@ -337,7 +337,7 @@ python scripts/import_diagnosis.py --bundle handoff.json --username 何深 --dev
 导入通过认证的 `POST /api/devices/{device_id}/diagnosis-imports` 在**一个事务**里完成：
 
 1. 校验 bundle 哈希、trace_id、快照节点/目标、观测 content_sha256、双端快照，并核对目标设备名与包内节点一致（两级摘要错、未知 schema、节点或目标不一致、缺失快照引用、展示文本与摘要不一致、设备错绑均拒绝）；
-2. 复用配置导入、规则检查与变更单服务；Area 场景只有在两端设备与接口都已登记链路时才导入**对端快照**，并标记为历史证据（不进入默认最新版本列表），规则复算固定到该不可变版本；
+2. 复用配置导入、规则检查与变更单服务；Area 场景只有在两端设备与接口都已登记链路时才导入**对端快照**，并标记为历史证据（不进入默认最新版本列表），规则复算固定到该不可变版本；普通上传/采集与历史同哈希可共存，普通上传仍会成为当前版本；
 3. 只对**适用且绑定到包所指链路与双方版本**的本地 violated Finding 创建草稿，修复方案由本地 Finding 推导，外部建议命令存入导入记录供查看，不进入草稿；无对端快照或身份不符时仅存证据；
 4. 正常、采集失败、证据不足、无合格 Finding 时保存证据与规则结果，草稿为空；
 5. 同 bundle 或同 trace 重复导入返回原记录（`duplicate=true`），不新增业务行；

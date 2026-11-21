@@ -44,7 +44,7 @@ class ConfigVersion(Base):
     historical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
 
-    __table_args__ = (UniqueConstraint("device_id", "raw_sha256", name="uq_config_device_raw"),)
+    __table_args__ = (UniqueConstraint("device_id", "raw_sha256", "historical", name="uq_config_device_raw"),)
 
 
 class Baseline(Base):

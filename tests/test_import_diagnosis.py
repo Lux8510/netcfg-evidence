@@ -368,3 +368,64 @@ def test_existing_same_hash_peer_version_is_reused(app_client, r1_text, r2_text)
     all_versions = app_client.get(f"/api/devices/{r1}/configs",
                                   params={"include_historical": True}).json()["data"]
     assert len(all_versions) == 1  # same hash reused, no historical duplicate
+
+
+def test_peer_with_only_historical_version_is_undetermined(app_client, r1_text, r2_text):
+    r1 = create_device(app_client, "r1")
+    r2 = create_device(app_client, "r2")
+    local = r2_text.replace("network 10.12.0.0/30 area 0.0.0.0",
+                            "network 10.12.0.0/30 area 0.0.0.1")
+    import_config(app_client, r2, local)
+    app_client.post("/api/links", json={
+        "device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
+    bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
+                         peer_config=r1_text, trace_id="40" + "0" * 62)
+    result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
+                             json={"bundle": bundle}).json()["data"]
+    assert result["status"] == "draft"
+    check = app_client.post(f"/api/devices/{r2}/rules/check",
+                            json={"include_cross": True}).json()["data"]
+    r005 = [item for item in check["findings"] if item["rule_id"] == "R005"]
+    assert r005 and r005[0]["status"] == "undetermined"
+
+
+def test_normal_upload_can_become_current_after_historical_version(app_client, r1_text, r2_text):
+    r1, r2, local = _manual_area(app_client, r1_text, r2_text, peer_area="0.0.0.2", link=True)
+    bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
+                         peer_config=r1_text, trace_id="41" + "0" * 62)
+    app_client.post(f"/api/devices/{r2}/diagnosis-imports", json={"bundle": bundle})
+    # r1 now has current 0.0.0.2 + historical 0.0.0.0.
+    response = app_client.post(f"/api/devices/{r1}/configs",
+                               json={"text": r1_text, "source_name": "upload"})
+    assert response.status_code == 201, response.text
+    uploaded = response.json()["data"]
+    assert uploaded["unchanged"] is False
+    assert uploaded["historical"] is False
+    current = app_client.get(f"/api/devices/{r1}/configs").json()["data"]
+    assert any(row["id"] == uploaded["id"] for row in current)
+    all_versions = app_client.get(f"/api/devices/{r1}/configs",
+                                  params={"include_historical": True}).json()["data"]
+    assert len([row for row in all_versions if row["historical"]]) == 1
+
+
+def test_snapshot_stdout_bytes_must_match_text(app_client, r1_text):
+    device = create_device(app_client, "r2")
+    bundle = make_bundle(r1_text, node="r2", trace_id="42" + "0" * 62)
+    bundle["citations"][0]["observations"][0]["stdout_bytes"] += 10
+    bundle["citations"][0]["content_sha256"] = observation_digest(
+        bundle["citations"][0]["observations"])
+    _rehash(bundle)
+    response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle})
+    assert response.status_code == 422
+
+
+def test_non_snapshot_truncation_flags_must_be_consistent(app_client, r1_text):
+    device = create_device(app_client, "r2")
+    bundle = make_bundle(r1_text, node="r2", trace_id="43" + "0" * 62)
+    bundle["citations"][0]["observations"][0]["stdout_truncated"] = True
+    bundle["citations"][0]["content_sha256"] = observation_digest(
+        bundle["citations"][0]["observations"])
+    _rehash(bundle)
+    response = app_client.post(f"/api/devices/{device}/diagnosis-imports", json={"bundle": bundle})
+    # Truncated flag with bytes equal to text is self-inconsistent and rejected.
+    assert response.status_code == 422
