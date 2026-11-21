@@ -245,8 +245,8 @@ POSTGRES_TRIGGERS: dict[str, str] = {
     "change_requests_snapshot_immutable": (
         "DROP TRIGGER IF EXISTS change_requests_snapshot_immutable ON change_requests; "
         "CREATE TRIGGER change_requests_snapshot_immutable BEFORE UPDATE ON change_requests "
-        "FOR EACH ROW WHEN (OLD.finding_ids IS DISTINCT FROM NEW.finding_ids "
-        "OR OLD.findings_snapshot IS DISTINCT FROM NEW.findings_snapshot) "
+        "FOR EACH ROW WHEN (OLD.finding_ids::jsonb IS DISTINCT FROM NEW.finding_ids::jsonb "
+        "OR OLD.findings_snapshot::jsonb IS DISTINCT FROM NEW.findings_snapshot::jsonb) "
         "EXECUTE FUNCTION prevent_mutation()"
     ),
 }
