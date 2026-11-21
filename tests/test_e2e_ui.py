@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import socket
 import subprocess
@@ -561,3 +562,67 @@ def test_diagnosis_import_is_visible_from_device_detail(page, server):
     page.wait_for_selector("[data-testid=diagnosis-version-text]")
     version_text = page.locator("[data-testid=diagnosis-version-text]").inner_text()
     assert "hostname r1" in version_text
+
+
+def _upload_bundle(page, tmp_path, name: str, bundle: dict) -> None:
+    path = tmp_path / name
+    path.write_text(json.dumps(bundle), encoding="utf-8")
+    page.set_input_files("[data-testid=diagnosis-upload-input]", str(path))
+    page.click("[data-testid=diagnosis-upload-submit]")
+
+
+def test_upload_normal_bundle_stores_evidence_only(page, server, tmp_path):
+    device = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", device)
+    _upload_bundle(page, tmp_path, "normal.json", _diagnosis_bundle(BASELINE, node="r2"))
+    page.wait_for_selector("[data-testid=diagnosis-result-nodraft]")
+    assert "仅存证" in page.locator("[data-testid=diagnosis-result-nodraft]").inner_text()
+    changes = httpx.get(server + f"/api/devices/{device}/change-requests",
+                        cookies=api_login(server)).json()["data"]
+    assert changes == []
+
+
+def test_upload_area_bundle_creates_local_r005_draft(page, server, tmp_path):
+    r1 = api_post(server, "/api/devices", {"name": "r1"})["id"]
+    r2 = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    api_post(server, "/api/links", {"device_a_id": r1, "iface_a": "eth2", "device_b_id": r2, "iface_b": "eth1"})
+    local = SECOND.replace("network 10.12.0.0/30 area 0.0.0.0",
+                           "network 10.12.0.0/30 area 0.0.0.1")
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", r2)
+    _upload_bundle(page, tmp_path, "area.json", _area_diagnosis_bundle(local, BASELINE))
+    page.wait_for_selector("[data-testid=diagnosis-result-draft]")
+    assert "已生成草稿" in page.locator("[data-testid=diagnosis-result-draft]").inner_text()
+    changes = httpx.get(server + f"/api/devices/{r2}/change-requests",
+                        cookies=api_login(server)).json()["data"]
+    assert len(changes) == 1 and changes[0]["status"] == "draft"
+    assert changes[0]["finding_ids"]
+
+
+def test_upload_device_mismatch_shows_server_reason(page, server, tmp_path):
+    device = api_post(server, "/api/devices", {"name": "other"})["id"]
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", device)
+    _upload_bundle(page, tmp_path, "mismatch.json", _diagnosis_bundle(BASELINE, node="r2"))
+    page.wait_for_selector("[data-testid=diagnosis-error]")
+    text = page.locator("[data-testid=diagnosis-error]").inner_text()
+    assert "DEVICE_NODE_MISMATCH" in text
+    imports = httpx.get(server + f"/api/devices/{device}/diagnosis-imports",
+                        cookies=api_login(server)).json()["data"]
+    assert imports == []
+
+
+def test_upload_same_bundle_twice_returns_original_record(page, server, tmp_path):
+    device = api_post(server, "/api/devices", {"name": "r2"})["id"]
+    page.goto(server)
+    page.select_option("[data-testid=device-select]", device)
+    bundle = _diagnosis_bundle(BASELINE, node="r2")
+    _upload_bundle(page, tmp_path, "normal.json", bundle)
+    page.wait_for_selector("[data-testid=diagnosis-result-nodraft]")
+    _upload_bundle(page, tmp_path, "normal-again.json", bundle)
+    page.wait_for_selector("[data-testid=diagnosis-result-duplicate]")
+    assert "返回原记录" in page.locator("[data-testid=diagnosis-result-duplicate]").inner_text()
+    imports = httpx.get(server + f"/api/devices/{device}/diagnosis-imports",
+                        cookies=api_login(server)).json()["data"]
+    assert len(imports) == 1

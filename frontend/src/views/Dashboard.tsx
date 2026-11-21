@@ -297,7 +297,8 @@ export default function Dashboard({ user, onLogout }: { user: User; onLogout: ()
             <div className="space-y-4">
               <TopologyCard links={deviceLinks} currentId={deviceId} onSelect={setDeviceId} />
               <AuditCard rows={audit} />
-              <DiagnosisImportCard key={deviceId} rows={diagnosisImports} />
+              <DiagnosisImportCard key={deviceId} rows={diagnosisImports} deviceId={deviceId}
+                                   onImported={() => { loadDeviceData(deviceId).catch(() => undefined); }} />
             </div>
           </StaggerItem>
 
@@ -843,14 +844,113 @@ function AuditCard({ rows }: { rows: AuditRow[] }) {
 }
 
 /* ---------------- diagnosis imports ---------------- */
-function DiagnosisImportCard({ rows }: { rows: DiagnosisImport[] }) {
+function DiagnosisImportCard({ rows, deviceId, onImported }: {
+  rows: DiagnosisImport[]; deviceId: string; onImported?: () => void;
+}) {
   const [detail, setDetail] = useState<DiagnosisImport | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [result, setResult] = useState<DiagnosisImport | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function upload() {
+    if (!file || !deviceId) return;
+    setBusy(true);
+    setError('');
+    setResult(null);
+    try {
+      const text = await file.text();
+      let bundle: unknown;
+      try {
+        bundle = JSON.parse(text);
+      } catch {
+        setError('文件不是合法 JSON');
+        return;
+      }
+      const row = await api<DiagnosisImport>(`/devices/${deviceId}/diagnosis-imports`, {
+        body: { bundle },
+      });
+      setResult(row);
+      onImported?.();
+    } catch (caught) {
+      const message = caught instanceof ApiError && caught.code
+        ? `${caught.message}（${caught.code}）`
+        : (caught as Error).message;
+      setError(message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const outcome = result
+    ? result.duplicate ? 'duplicate' : result.status === 'draft' ? 'draft' : 'no_draft'
+    : null;
+
   return (
     <Card className="h-full">
-      <CardHeader title="诊断导入" hint="NetSecOps 证据包：本地复算后才可能建草稿"
+      <CardHeader title="诊断导入" hint="上传 NetSecOps 证据包；目标为当前选中的已登记设备"
                   action={<Sparkles size={16} className="text-muted" />} />
+
+      <div className="mb-3 space-y-2 rounded-xl border border-line bg-panel-2 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input ref={inputRef} type="file" accept="application/json,.json" className="hidden"
+                 data-testid="diagnosis-upload-input"
+                 onChange={(event) => {
+                   setFile(event.target.files?.[0] ?? null);
+                   setResult(null);
+                   setError('');
+                 }} />
+          <Button size="sm" variant="outline" data-testid="diagnosis-upload-select"
+                  onClick={() => inputRef.current?.click()}>
+            <Upload size={13} /> 选择证据包
+          </Button>
+          <Button size="sm" variant="primary" data-testid="diagnosis-upload-submit"
+                  disabled={!file || busy} onClick={upload}>
+            {busy ? '正在导入…' : '导入'}
+          </Button>
+          <span className="truncate text-[11px] text-muted" data-testid="diagnosis-file-name">
+            {file ? file.name : '未选择文件'}
+          </span>
+        </div>
+        <p className="text-[10px] text-muted">
+          设备名必须与包内节点一致；导入只创建草稿，不移动基线、不写入设备。
+        </p>
+      </div>
+
+      {error && (
+        <div className="mb-3 rounded-xl border border-danger/40 bg-danger/10 p-3 text-[11px] text-danger"
+             data-testid="diagnosis-error">
+          {error}
+        </div>
+      )}
+      {result && outcome === 'draft' && (
+        <div className="mb-3 rounded-xl border border-ok/40 bg-ok/10 p-3 text-[11px]"
+             data-testid="diagnosis-result-draft">
+          <p className="font-medium text-ok">已生成草稿</p>
+          <p className="mt-1 text-fg/90">
+            本地规则找到适用 Finding，变更单 {shortId(result.change_request_id ?? '')} 已进入待提交状态。
+          </p>
+          <p className="mt-1 text-[10px] text-muted">继续在下方「变更单与审批」提交并走人工审批。</p>
+        </div>
+      )}
+      {result && outcome === 'no_draft' && (
+        <div className="mb-3 rounded-xl border border-line bg-panel-2 p-3 text-[11px]"
+             data-testid="diagnosis-result-nodraft">
+          <p className="font-medium text-fg">仅存证，未生成草稿</p>
+          <p className="mt-1 text-muted">{result.no_draft_reason ?? '没有适用的本地 Finding'}</p>
+        </div>
+      )}
+      {result && outcome === 'duplicate' && (
+        <div className="mb-3 rounded-xl border border-accent/40 bg-accent/10 p-3 text-[11px]"
+             data-testid="diagnosis-result-duplicate">
+          <p className="font-medium text-accent">重复导入，返回原记录</p>
+          <p className="mt-1 text-fg/90">导入 ID {shortId(result.id)}，未新增业务记录。</p>
+        </div>
+      )}
+
       <div className="max-h-[320px] space-y-2 overflow-auto pr-1" data-testid="diagnosis-imports">
-        {rows.length === 0 && <EmptyState title="还没有诊断导入" hint="用 scripts/import_diagnosis.py 导入证据包" />}
+        {rows.length === 0 && <EmptyState title="还没有诊断导入" hint="上传证据包，或用 scripts/import_diagnosis.py" />}
         {rows.map((row) => (
           <button key={row.id} type="button" data-testid="diagnosis-import"
                   onClick={() => setDetail(row)}

@@ -46,7 +46,7 @@ python3.12 -m venv .venv
 | 项 | 数量 |
 | --- | --- |
 | 单元/接口测试 | **230**（含 8 条 hypothesis 属性测试） |
-| 浏览器端到端 | **12**（真实 Chrome + 真实服务进程） |
+| 浏览器端到端 | **22**（真实 Chrome + 真实服务进程） |
 | 真实并发 | **3**（独立进程 + 多线程 HTTP） |
 | 评测 | 漂移 20/20 · 规则 15/15 · 解释 17/17 |
 | 规则 | 4 条本机 + 3 条链路 |
@@ -343,7 +343,7 @@ python scripts/import_diagnosis.py --bundle handoff.json --username 何深 --dev
 5. 同 bundle 或同 trace 重复导入返回原记录（`duplicate=true`），不新增业务行；
 6. 始终不移动现有基线。
 
-设备详情可通过 `GET /api/devices/{id}/diagnosis-imports` 追溯提交人、提交时间、完整 bundle 哈希、trace_id、原始证据摘要、config_version_id、rule_run_id 与可选 change_request_id。外部诊断结论只写入理由，**不改变判定**；两个项目共享证据，但各自保留判定权。
+设备详情提供证据包上传入口（JSON 文件），目标固定为当前选中的已登记设备，并按「已生成草稿 / 仅存证 / 重复导入」展示结果；校验失败直接显示服务端原因。也可通过 `GET /api/devices/{id}/diagnosis-imports` 追溯提交人、提交时间、完整 bundle 哈希、trace_id、原始证据摘要、config_version_id、rule_run_id 与可选 change_request_id。外部诊断结论只写入理由，**不改变判定**；两个项目共享证据，但各自保留判定权。
 
 ## 解释层：模型只能解释，不能判定
 
@@ -490,7 +490,7 @@ CONTRACT_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/netc
 make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动跳过
 ```
 
-16 条真实浏览器用例（三栏工作台）：
+22 条真实浏览器用例（三栏工作台）：
 
 1. 导入 → 设基线 → 比对 → 并排 diff 标出 cost 10 与 cost 30
 2. 规则违规 → 生成变更单 → 提交 → 批准 → 审计事件
@@ -508,6 +508,12 @@ make e2e    # 需要本机 Chrome 与 playwright；CI 无浏览器时会自动�
 14. SSH 变更核对：保存目标 → 采集前快照 → 完成核对 → 展示差异
 15. 采集中切换设备，旧响应不会写回新设备
 16. 悬停证据行号，另一张卡的关联条目同步高亮；点击行号打开原文
+17. 设备详情展示诊断导入记录、原始观测与配置原文
+18. 从诊断详情打开当次规则结果与证据行
+19. 上传正常包：仅存证，不生成草稿
+20. 上传 Area 不一致包：生成本地 R005 草稿
+21. 上传设备不匹配包：展示服务端拒绝原因，零新增记录
+22. 同包重复上传：返回原导入记录
 
 单元测试默认排除 `e2e`（`pyproject.toml` 的 `addopts`），所以 `pytest` 仍然是秒级；`make e2e` 单独跑浏览器用例。
 
