@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml/badge.svg)](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB)
 ![React 19](https://img.shields.io/badge/react-19-61DAFB)
-![tests 229](https://img.shields.io/badge/tests-229-3ECF8E)
+![tests 230](https://img.shields.io/badge/tests-230-3ECF8E)
 ![license MIT](https://img.shields.io/badge/license-MIT-green)
 
 判定由确定性代码完成，模型只能解释；变更必须由人审批。系统不写入设备：只读采集仅执行白名单 `show` 命令，不下发配置、不做转发仿真。
@@ -45,7 +45,7 @@ python3.12 -m venv .venv
 
 | 项 | 数量 |
 | --- | --- |
-| 单元/接口测试 | **229**（含 8 条 hypothesis 属性测试） |
+| 单元/接口测试 | **230**（含 8 条 hypothesis 属性测试） |
 | 浏览器端到端 | **12**（真实 Chrome + 真实服务进程） |
 | 真实并发 | **3**（独立进程 + 多线程 HTTP） |
 | 评测 | 漂移 20/20 · 规则 15/15 · 解释 17/17 |
@@ -459,6 +459,21 @@ make concurrency
 1. 8 个并发导入同一份配置 → 全部 201、同一个版本 ID、库里只有一条
 2. 两个并发基线切换 → 不出现 500，最终 active 恰好一条
 3. 并发批准与拒绝 → 一个 200、一个 409，审计里只有一条决定
+
+## 跨仓契约测试
+
+```bash
+make contract   # 需要可访问的 ../netsecops-agent checkout
+```
+
+用真实 CLI 跑通一条闭环：NetSecOps `handoff.py` 导出，netcfg `import_diagnosis.py` 导入到一个临时 SQLite + 真实 uvicorn。覆盖：
+
+1. normal：存证、无草稿、同包重导返回原 ID；
+2. area-mismatch：登记链路后由本地 R005 生成草稿、重导幂等；
+3. insufficient/采集失败：仅存证；
+4. 被篡改的证据包：CLI 非零退出且不新增导入记录。
+
+报告写入 `contract-report.json`，记录两个仓库的 commit 与 bundle schema。CI 的 `contract` job 会 checkout 两个仓库并运行同一脚本。
 
 ## 浏览器端到端
 
