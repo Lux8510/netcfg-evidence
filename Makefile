@@ -1,6 +1,6 @@
 PY ?= python3
 
-.PHONY: ui test audit-verify contract prop e2e concurrency load model-check user run migrate revision eval cases bundle check review-kit clean
+.PHONY: ui test audit-verify contract lab-replay prop e2e concurrency load model-check user run migrate revision eval cases bundle check review-kit clean
 
 ui:
 	cd frontend && npm ci --no-audit --no-fund && npm run build
@@ -10,6 +10,9 @@ audit-verify:
 
 contract:
 	$(PY) tools/contract_netsecops.py --netsecops ../netsecops-agent
+
+lab-replay:
+	$(PY) tools/lab_replay_acceptance.py --netsecops ../netsecops-agent
 
 test:
 	$(PY) -m pytest

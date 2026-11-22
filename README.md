@@ -484,6 +484,15 @@ CONTRACT_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/netc
 
 覆盖：带数据迁移、同哈希历史/当前共存、并发导入去重、草稿后失败回滚。报告为 `contract-postgres-report.json`。
 
+## 受控 FRR 拓扑
+
+```bash
+make lab-replay   # 保存轨迹的离线回放（本机可跑）
+```
+
+现场采集路径（Docker + Containerlab + FRR）与阻塞说明见 [docs/LAB_RUNBOOK.md](docs/LAB_RUNBOOK.md)。  
+本机 macOS 无 Docker/Containerlab，现场路径未执行；离线回放报告在 `docs/lab-runs/offline-replay.md`。
+
 ## 浏览器端到端
 
 ```bash
