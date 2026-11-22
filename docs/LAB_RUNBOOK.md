@@ -74,7 +74,7 @@ cd "$NETSECOPS/labs/ospf-baseline"
   --require-peer --out "$LAB_RUN/normal.json"
 ```
 
-正常包应包含 r1 目标快照；peer 若采集齐全也会进入 `peer_snapshot`。
+正常包应包含 r1 目标快照；`--require-peer` 还会要求 r2 对端快照，缺任一端直接失败。
 
 ## 2. Area 不一致
 
@@ -89,7 +89,7 @@ sudo docker exec clab-netsecops-ospf-r2 vtysh -c 'show running-config'
   --output "$LAB_RUN/area"
 ```
 
-构建轨迹；`--require-peer` 会拒绝缺对端快照的 Area 包：
+构建轨迹；`--require-peer` 会拒绝缺对端快照，`--expect-status ospf_area_mismatch` 会拒绝诊断降级（例如缺对端后变成 insufficient_evidence）：
 
 ```bash
 cd "$NETSECOPS/labs/ospf-baseline"
@@ -98,7 +98,8 @@ cd "$NETSECOPS/labs/ospf-baseline"
   --target r2 --out "$LAB_RUN/area-trace.json"
 "$NETSECOPS_PY" handoff.py \
   --trace "$LAB_RUN/area-trace.json" --device r2 --target r2 \
-  --require-peer --out "$LAB_RUN/area.json"
+  --require-peer --expect-status ospf_area_mismatch \
+  --out "$LAB_RUN/area.json"
 ```
 
 导入前预检两端快照：
