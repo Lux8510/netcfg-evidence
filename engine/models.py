@@ -372,8 +372,10 @@ class DiagnosisImport(Base):
     submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, nullable=False)
 
     __table_args__ = (
-        UniqueConstraint("device_id", "bundle_sha256", name="uq_diagnosis_import_bundle"),
-        UniqueConstraint("device_id", "trace_id", name="uq_diagnosis_import_trace"),
+        UniqueConstraint("device_id", "bundle_sha256", "environment", "topology",
+                         name="uq_diagnosis_import_bundle"),
+        UniqueConstraint("device_id", "trace_id", "environment", "topology",
+                         name="uq_diagnosis_import_trace"),
         CheckConstraint("status IN ('draft','no_draft')", name="ck_diagnosis_import_status"),
     )
 

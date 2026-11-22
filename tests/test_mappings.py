@@ -160,3 +160,66 @@ def test_peer_mapping_missing_only_stores_evidence(app_client, r1_text, r2_text)
     assert response.status_code == 201, response.text
     assert response.json()["data"]["status"] == "no_draft"
     assert "对端节点" in (response.json()["data"]["no_draft_reason"] or "")
+
+
+def test_same_device_cross_environment_does_not_reuse_import(app_client, r1_text):
+    device = _device(app_client, "r2")
+    assert _map(app_client, "env-a", "core", "r2", device).status_code == 201
+    assert _map(app_client, "env-b", "core", "r2", device).status_code == 201
+    bundle = _bundle(r1_text, trace_id="9" * 64)
+    first = _post_import(app_client, device, bundle, "env-a", "core").json()["data"]
+    second_response = _post_import(app_client, device, bundle, "env-b", "core")
+    assert second_response.status_code == 201
+    second = second_response.json()["data"]
+    assert second["duplicate"] is False
+    assert second["id"] != first["id"]
+    assert second["rule_run_id"] != first["rule_run_id"]
+    assert second["environment"] == "env-b" and second["topology"] == "core"
+    assert len(app_client.get(f"/api/devices/{device}/diagnosis-imports").json()["data"]) == 2
+
+
+def test_same_device_cross_topology_does_not_reuse_import(app_client, r1_text):
+    device = _device(app_client, "r2")
+    assert _map(app_client, "env-a", "core", "r2", device).status_code == 201
+    assert _map(app_client, "env-a", "edge", "r2", device).status_code == 201
+    bundle = _bundle(r1_text, trace_id="a1" + "0" * 62)
+    first = _post_import(app_client, device, bundle, "env-a", "core").json()["data"]
+    second = _post_import(app_client, device, bundle, "env-a", "edge").json()["data"]
+    assert second["duplicate"] is False and second["id"] != first["id"]
+    assert second["topology"] == "edge"
+
+
+def test_same_context_reimport_returns_original(app_client, r1_text):
+    device = _device(app_client, "r2")
+    assert _map(app_client, "env-a", "core", "r2", device).status_code == 201
+    bundle = _bundle(r1_text, trace_id="a2" + "0" * 62)
+    first = _post_import(app_client, device, bundle, "env-a", "core").json()["data"]
+    second = _post_import(app_client, device, bundle, "env-a", "core").json()["data"]
+    assert second["duplicate"] is True
+    assert second["id"] == first["id"]
+    assert second["rule_run_id"] == first["rule_run_id"]
+    assert second["change_request_id"] == first["change_request_id"]
+
+
+def test_old_null_context_record_is_not_reused(app_client, app_session, r1_text):
+    from sqlalchemy import select
+    from engine.models import DiagnosisImport
+
+    device = _device(app_client, "r2")
+    assert _map(app_client, "env-a", "core", "r2", device).status_code == 201
+    bundle = _bundle(r1_text, trace_id="a3" + "0" * 62)
+    first = _post_import(app_client, device, bundle, "env-a", "core").json()["data"]
+    with app_session() as session:
+        row = session.get(DiagnosisImport, first["id"])
+        row.environment = None
+        row.topology = None
+        session.commit()
+    second = _post_import(app_client, device, bundle, "env-a", "core")
+    assert second.status_code == 201
+    payload = second.json()["data"]
+    assert payload["duplicate"] is False and payload["id"] != first["id"]
+    with app_session() as session:
+        rows = session.scalars(select(DiagnosisImport).where(
+            DiagnosisImport.device_id == device)).all()
+        assert {row.id for row in rows} == {first["id"], payload["id"]}
+        assert any(row.environment is None and row.topology is None for row in rows)

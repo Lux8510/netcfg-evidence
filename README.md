@@ -5,7 +5,7 @@
 [![CI](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml/badge.svg)](https://github.com/Lux8510/netcfg-evidence/actions/workflows/ci.yml)
 ![Python 3.12](https://img.shields.io/badge/python-3.12-3776AB)
 ![React 19](https://img.shields.io/badge/react-19-61DAFB)
-![tests 238](https://img.shields.io/badge/tests-238-3ECF8E)
+![tests 242](https://img.shields.io/badge/tests-242-3ECF8E)
 ![license MIT](https://img.shields.io/badge/license-MIT-green)
 
 判定由确定性代码完成，模型只能解释；变更必须由人审批。系统不写入设备：只读采集仅执行白名单 `show` 命令，不下发配置、不做转发仿真。
@@ -45,7 +45,7 @@ python3.12 -m venv .venv
 
 | 项 | 数量 |
 | --- | --- |
-| 单元/接口测试 | **238**（含 8 条 hypothesis 属性测试） |
+| 单元/接口测试 | **242**（含 8 条 hypothesis 属性测试） |
 | 浏览器端到端 | **23**（真实 Chrome + 真实服务进程） |
 | 真实并发 | **3**（独立进程 + 多线程 HTTP） |
 | 评测 | 漂移 20/20 · 规则 15/15 · 解释 17/17 |

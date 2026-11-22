@@ -60,6 +60,8 @@ python scripts/import_diagnosis.py --bundle handoff.json --username 何深 \
 - **旧设备**：没有映射就不会被新导入命中；需要显式登记。**不根据设备名自动推断**跨环境映射。
 - **旧导入**：仍可在设备详情查看；没有环境信息的历史记录不会参与新的映射解析。
 - 失败回滚、幂等（bundle_sha256 / trace_id）与历史版本策略保持不变。
+- **去重按上下文隔离**：同一设备可以在不同环境/拓扑下各有一条导入记录；`duplicate=true` 只会在相同 `(device, environment, topology, bundle/trace)` 下出现。跨上下文会新建规则运行与草稿，不复用旧记录。
+- 旧记录 `environment/topology` 为 `NULL`，新导入不会匹配或复用这些记录，仍可查询。
 
 ## 前端
 

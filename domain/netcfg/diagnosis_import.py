@@ -269,6 +269,17 @@ def _derive_remediation(finding: Finding) -> list[str]:
     return [f"interface {iface}", f"ip ospf area {peer_area}"]
 
 
+def _existing_import(db: Session, device_id: str, bundle: dict[str, Any],
+                     environment: str, topology: str) -> DiagnosisImport | None:
+    return db.scalar(select(DiagnosisImport).where(
+        DiagnosisImport.device_id == device_id,
+        DiagnosisImport.environment == environment,
+        DiagnosisImport.topology == topology,
+        (DiagnosisImport.bundle_sha256 == bundle["bundle_sha256"])
+        | (DiagnosisImport.trace_id == bundle["trace_id"]),
+    ))
+
+
 def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor: str,
                      *, environment: str, topology: str,
                      preferred_rule: str | None = None) -> dict[str, Any]:
@@ -287,11 +298,7 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
         raise ServiceError("MAPPING_DEVICE_MISMATCH",
                            f"节点 {snapshot['node']} 映射到设备 {mapping.device_id}，与当前设备不一致", 422)
 
-    existing = db.scalar(select(DiagnosisImport).where(
-        DiagnosisImport.device_id == device_id,
-        (DiagnosisImport.bundle_sha256 == bundle["bundle_sha256"])
-        | (DiagnosisImport.trace_id == bundle["trace_id"]),
-    ))
+    existing = _existing_import(db, device_id, bundle, environment, topology)
     if existing is not None:
         return import_payload(existing, duplicate=True)
 
@@ -393,11 +400,7 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
         db.flush()
     except IntegrityError:
         db.rollback()
-        existing = db.scalar(select(DiagnosisImport).where(
-            DiagnosisImport.device_id == device_id,
-            (DiagnosisImport.bundle_sha256 == bundle["bundle_sha256"])
-            | (DiagnosisImport.trace_id == bundle["trace_id"]),
-        ))
+        existing = _existing_import(db, device_id, bundle, environment, topology)
         if existing is None:
             raise
         return import_payload(existing, duplicate=True)
