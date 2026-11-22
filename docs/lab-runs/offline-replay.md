@@ -1,13 +1,13 @@
-# 离线回放验收 · 2026-11-22T06:07:39+00:00
+# 离线回放验收 · 2026-11-22T06:07:51+00:00
 
 - 模式：`offline-replay`
-- netcfg：`8ce5ac15be4af9b8ec3a680332f289f423162988`
+- netcfg：`cab9b54b6e7a25dd2bfeba8e9c85280ad9fb2978`
 - netsecops：`649a54354e79ac5b72493dc1c956f71c07e1ac44`
 - 环境/拓扑：`lab/ospf`
 
 | 场景 | 结果 |
 | --- | --- |
-| normal_replay | status=no_draft, submitted_by=lab-admin, config_version_id=82f51ce6-4a31-4c97-b270-05c81cf13928, rule_run_id=563a5ab3-e0c7-491b-ad49-383f1c1aa7e5, findings=3 |
+| normal_replay | status=no_draft, submitted_by=lab-admin, config_version_id=0200b235-a021-46e9-b091-ab042175e963, rule_run_id=afefc373-da40-4f47-bc19-b65a1b18f614, findings=3 |
 | area_mismatch_replay | status=draft, finding_rule=R005, change_status=approved, approved_by=lab-approver, duplicate=True |
 | wrong_context_rejected | rights_unchanged=True, wrong_device_unchanged=True |
 
