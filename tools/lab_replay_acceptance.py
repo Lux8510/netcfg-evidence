@@ -155,6 +155,10 @@ def main(argv: list[str] | None = None) -> int:
             findings = api(admin, "GET", f"/api/devices/{r1}/findings",
                            params={"run_id": detail["rule_run_id"]})
             assert all(item["config_version_id"] == detail["config_version_id"] for item in findings)
+            version = api(admin, "GET", f"/api/versions/{detail['config_version_id']}")
+            assert "hostname r1" in version["text"]
+            assert detail["evidence"] and detail["evidence"][0].get("observations")
+            assert detail["evidence"][0]["observations"][0].get("stdout")
             report["cases"].append({"case": "normal_replay", "status": normal["status"],
                                     "submitted_by": detail["submitted_by"],
                                     "config_version_id": detail["config_version_id"],
@@ -185,23 +189,24 @@ def main(argv: list[str] | None = None) -> int:
                                     "approved_by": approved["approved_by"],
                                     "duplicate": replay["duplicate"]})
 
-            # 3) wrong context / wrong device: rejected with zero writes
-            before = counts(admin, r1)
+            # 3) wrong context / wrong device: rejected with zero writes.
+            # Check the request target, the mapped target and the possible peer.
+            other = api(admin, "POST", "/api/devices", json={"name": "r2-other"})["id"]
+            api(admin, "POST", "/api/mappings", json={
+                "environment": "other", "topology": TOPO, "node": "r2", "device_id": other})
+            targets = {"r2": r2, "other": other, "r1": r1}
+            before = {name: counts(admin, device_id) for name, device_id in targets.items()}
             rejected_env = admin.post(f"/api/devices/{r1}/diagnosis-imports", json={
                 "bundle": normal_bundle, "environment": "wrong-env", "topology": TOPO})
             assert rejected_env.status_code == 422
             assert rejected_env.json()["error"]["code"] == "MAPPING_NOT_FOUND"
-            assert counts(admin, r1) == before
+            assert {name: counts(admin, device_id) for name, device_id in targets.items()} == before
 
-            other = api(admin, "POST", "/api/devices", json={"name": "r2-other"})["id"]
-            api(admin, "POST", "/api/mappings", json={
-                "environment": "other", "topology": TOPO, "node": "r2", "device_id": other})
-            before_other = counts(admin, other)
             rejected_device = admin.post(f"/api/devices/{r2}/diagnosis-imports", json={
                 "bundle": area_bundle, "environment": "other", "topology": TOPO})
             assert rejected_device.status_code == 422
             assert rejected_device.json()["error"]["code"] == "MAPPING_DEVICE_MISMATCH"
-            assert counts(admin, other) == before_other
+            assert {name: counts(admin, device_id) for name, device_id in targets.items()} == before
 
             report["cases"].append({"case": "wrong_context_rejected",
                                     "rights_unchanged": True,
