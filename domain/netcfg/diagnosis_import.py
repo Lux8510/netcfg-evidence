@@ -11,7 +11,9 @@ violated finding, with a remediation derived from that finding.
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
+import re
 from typing import Any
 
 from sqlalchemy import select
@@ -21,6 +23,7 @@ from sqlalchemy.orm import Session
 from engine.models import ConfigVersion, Device, DeviceLink, DiagnosisImport, Finding
 
 from . import change_requests, mappings
+from .parser import parse_frr_config
 from .service import ServiceError, _device, import_config, run_rules_check
 
 
@@ -248,24 +251,71 @@ def _finding_matches_link(db: Session, device_id: str, finding: Finding,
     return link_row is not None
 
 
-def _derive_remediation(finding: Finding) -> list[str]:
-    """Build a remediation from the local finding, never from the external commands."""
-    if finding.rule_id != "R005":
-        return []
+def _area_source(version: ConfigVersion, evidence: dict, *, target: bool):
+    path = re.fullmatch(r"interface\.([\w./:-]+)\.ospf\.area", evidence.get("path") or "")
+    if path is None or evidence.get("version_id") != version.id:
+        return None
+    name = path[1]
+    parsed = parse_frr_config(version.raw_text)
+    iface = parsed.interfaces.get(name)
+    if iface is None:
+        return None
+    lines = version.raw_text.splitlines()
+    processes = [line.strip() for line in lines if re.match(r"^router\s+ospf(?:\s|$)", line)]
+    if processes not in ([], ["router ospf"]):
+        return None
+    networks = parsed.ospf.networks if parsed.ospf else []
+    if iface.ospf.area:
+        # FRR rejects interface-level area changes with process network statements.
+        if target and networks:
+            return None
+        area, line, prefix = iface.ospf.area, iface.ospf.lines.get("area"), None
+    else:
+        try:
+            addresses = {key: [ipaddress.ip_interface(a) for a in obj.addresses]
+                         for key, obj in parsed.interfaces.items()}
+            matches = [(item, ipaddress.ip_network(item.prefix)) for item in networks]
+            matches = [(item, net) for item, net in matches
+                       if any(addr.ip in net for addr in addresses[name])]
+        except ValueError:
+            return None
+        if len(matches) != 1:
+            return None
+        item, net = matches[0]
+        if not any(addr.network == net for addr in addresses[name]):
+            return None
+        if target and any(addr.ip in net for other, values in addresses.items()
+                          if other != name for addr in values):
+            return None
+        area, line, prefix = item.area, item.line, item.prefix
+    if (line is None or not 1 <= line <= len(lines) or evidence.get("line") != line
+            or evidence.get("text") != f"area {area}"):
+        return None
+    try:
+        if not (area.isascii() and area.isdecimal() and int(area) <= 0xffffffff):
+            ipaddress.IPv4Address(area)
+    except ValueError:
+        return None
+    expected = f"network {prefix} area {area}" if prefix else f"ip ospf area {area}"
+    if " ".join(lines[line - 1].split()) != expected:
+        return None
+    return name, area, prefix
+
+
+def _derive_remediation(finding: Finding, version: ConfigVersion,
+                        peer_version: ConfigVersion | None) -> list[str]:
     evidence = finding.evidence or []
-    if len(evidence) < 2:
+    if finding.rule_id != "R005" or len(evidence) != 2 or peer_version is None:
         return []
-    local, peer = evidence[0], evidence[1]
-    parts = (local.get("path") or "").split(".")
-    if len(parts) < 2 or parts[0] != "interface" or not parts[1]:
+    local = _area_source(version, evidence[0], target=True)
+    peer = _area_source(peer_version, evidence[1], target=False)
+    if local is None or peer is None:
         return []
-    iface = parts[1]
-    peer_text = (peer.get("text") or "").strip()
-    if not peer_text.startswith("area "):
-        return []
-    peer_area = peer_text[len("area "):].strip()
-    if not peer_area:
-        return []
+    iface, old_area, prefix = local
+    peer_area = peer[1]
+    if prefix:
+        return ["router ospf", f"no network {prefix} area {old_area}",
+                f"network {prefix} area {peer_area}"]
     return [f"interface {iface}", f"ip ospf area {peer_area}"]
 
 
@@ -360,9 +410,10 @@ def import_diagnosis(db: Session, device_id: str, bundle: dict[str, Any], actor:
     change_request_id = None
     status = "no_draft"
     if eligible is not None:
-        remediation = _derive_remediation(eligible)
+        peer_version = db.get(ConfigVersion, peer_version_id) if peer_version_id else None
+        remediation = _derive_remediation(eligible, version, peer_version)
         if not remediation:
-            no_draft_reason = f"本地规则 {eligible.rule_id} 无法推导修复方案，需人工填写"
+            no_draft_reason = f"本地规则 {eligible.rule_id} 无法确认 Area 配置来源或作用域，仅存证"
         else:
             rationale = compose_rationale(bundle, eligible.rule_id)
             request = change_requests.create_change_request(

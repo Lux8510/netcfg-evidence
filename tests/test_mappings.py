@@ -146,7 +146,8 @@ def test_r005_peer_is_resolved_in_the_same_environment(app_client, r1_text, r2_t
     assert result["status"] == "draft"
     change = app_client.get(f"/api/change-requests/{result['change_request_id']}").json()["data"]
     assert change["finding_ids"] == [result["finding_id"]]
-    assert change["proposed_commands"] == ["interface eth1", "ip ospf area 0.0.0.0"]
+    assert change["proposed_commands"] == ["router ospf", "no network 10.12.0.0/30 area 0.0.0.1",
+                                          "network 10.12.0.0/30 area 0.0.0.0"]
 
 
 def test_peer_mapping_missing_only_stores_evidence(app_client, r1_text, r2_text):

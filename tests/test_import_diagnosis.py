@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
@@ -161,6 +162,8 @@ def test_malformed_device_is_422(app_client, r1_text):
 
 def test_area_import_creates_draft_from_pinned_peer_snapshot(app_client, r1_text, r2_text):
     _r1, r2, local = _area_setup(app_client, r1_text, r2_text)
+    local = local.replace("interface eth1\n", "interface eth1\n ip ospf area 0.0.0.1\n")
+    local = "\n".join(line for line in local.splitlines() if not line.lstrip().startswith("network ")) + "\n"
     bundle = make_bundle(local, node="r2", status="ospf_area_mismatch",
                          peer_config=r1_text, trace_id="12" + "0" * 62)
     result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
@@ -193,7 +196,35 @@ def test_draft_uses_peer_snapshot_not_latest_peer_version(app_client, r1_text, r
                              json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
     assert result["status"] == "draft"
     change = app_client.get(f"/api/change-requests/{result['change_request_id']}").json()["data"]
-    assert change["proposed_commands"] == ["interface eth1", "ip ospf area 0.0.0.0"]
+    assert change["proposed_commands"] == ["router ospf", "no network 10.12.0.0/30 area 0.0.0.1",
+                                          "network 10.12.0.0/30 area 0.0.0.0"]
+
+
+@pytest.mark.parametrize("extra", ["", "interface eth2\n ip address 10.0.12.3/30\n!\n",
+                                   " network 10.0.0.0/16 area 0.0.0.2\n"])
+def test_archived_frr_area_scope(app_client, extra):
+    fixtures = Path(__file__).parent / "fixtures/frr-phase2"
+    peer, target = [(fixtures / f"{node}__running_config.stdout.txt").read_text()
+                    for node in ("r1", "r2")]
+    r1, r2, _ = _area_setup(app_client, peer, target, link=False)
+    assert app_client.post("/api/links", json={
+        "device_a_id": r1, "iface_a": "eth1", "device_b_id": r2, "iface_b": "eth1",
+    }).status_code == 201
+    if extra.startswith(" network"):
+        target = target.replace("router ospf\n", "router ospf\n" + extra)
+    elif extra:
+        target = target.replace("router ospf\n", extra + "router ospf\n")
+    bundle = make_bundle(target, status="ospf_area_mismatch", peer_config=peer, peer_interface="eth1")
+    result = app_client.post(f"/api/devices/{r2}/diagnosis-imports",
+                             json={"bundle": bundle, **IMPORT_CONTEXT}).json()["data"]
+    if extra:
+        assert result["status"] == "no_draft" and result["change_request_id"] is None
+        assert "作用域" in result["no_draft_reason"]
+    else:
+        assert result["status"] == "draft"
+        change = app_client.get(f"/api/change-requests/{result['change_request_id']}").json()["data"]
+        assert change["proposed_commands"] == ["router ospf", "no network 10.0.12.0/30 area 0.0.0.1",
+                                              "network 10.0.12.0/30 area 0.0.0.0"]
 
 
 def test_peer_identity_mismatch_does_not_create_draft(app_client, r1_text, r2_text):
